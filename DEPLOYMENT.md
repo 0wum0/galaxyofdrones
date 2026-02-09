@@ -84,6 +84,8 @@ composer install --no-dev --optimize-autoloader --no-interaction
 
 Im hPanel unter **Erweitert** > **Cron Jobs**:
 
+**Option A: Shell-Cron (empfohlen, falls verfuegbar)**
+
 ```
 * * * * * cd /home/u123456789/domains/yourdomain.com && php artisan schedule:run >> /dev/null 2>&1
 ```
@@ -92,6 +94,35 @@ Oder nutze das mitgelieferte Script:
 ```
 * * * * * /home/u123456789/domains/yourdomain.com/scripts/cron.sh >> /dev/null 2>&1
 ```
+
+**Option B: HTTP-Cron ueber URL (fuer eingeschraenkte Hosting-Plaene)**
+
+Falls du keinen Shell-Cron hast (z.B. nur URL-Cron erlaubt):
+
+1. Der Installer generiert automatisch ein `CRON_TOKEN` in der `.env`
+2. Richte im hPanel (oder bei cron-job.org) folgenden HTTP-Aufruf ein:
+
+```
+Intervall: Jede Minute (* * * * *)
+URL:       https://yourdomain.com/cron/tick?token=DEIN_CRON_TOKEN
+Methode:   GET
+```
+
+Das Token findest du in deiner `.env` unter `CRON_TOKEN=...`
+
+**Wichtige Hinweise:**
+- Der Game-Tick hat einen eingebauten Lock-Mechanismus. Doppelte Ausfuehrungen
+  werden automatisch verhindert (per Cache-Lock, 5 Min Timeout).
+- Der HTTP-Cron Endpoint ist rate-limited (max 2 Aufrufe/Minute).
+- Der Schedule fuehrt neben `game:tick` auch Expedition/Mission-Generierung (alle 6h)
+  und Ranking-Updates (stuendlich) aus. Bei HTTP-Cron laeuft NUR der Game-Tick.
+  Fuer vollstaendige Funktionalitaet wird Shell-Cron empfohlen.
+
+**Option C: HTTP-Cron fuer Root-Webroot (Variante B Deployment)**
+
+Wenn das Projekt NICHT im DocumentRoot liegt sondern nur public_html:
+Die URL bleibt gleich: `https://yourdomain.com/cron/tick?token=...`
+Der Webserver routet automatisch ueber public_html/index.php zum Controller.
 
 ---
 
@@ -185,13 +216,15 @@ Im hPanel:
 
 ---
 
-## Cache leeren (nach Updates)
+## Cache erneuern (nach Updates)
 
 ```bash
 cd ~/domains/yourdomain.com  # oder ~/app_files
 php artisan config:cache
-php artisan route:cache
 php artisan view:cache
+
+# Optional: Route-Cache (nur moeglich wenn keine Closure-Routes in web.php/api.php)
+php artisan route:cache
 ```
 
 ## Fehlerbehebung

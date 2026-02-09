@@ -38,14 +38,25 @@ class Kernel extends ConsoleKernel
     protected function schedule(Schedule $schedule)
     {
         // Game tick - processes all pending constructions, upgrades, trainings, movements
-        $schedule->command('game:tick')->everyMinute();
+        // withoutOverlapping: prevents a second tick from starting if the first hasn't finished
+        $schedule->command('game:tick')
+            ->everyMinute()
+            ->withoutOverlapping(5)  // Lock expires after 5 min as safety fallback
+            ->runInBackground();
 
         // Generate new expeditions and missions every 6 hours
-        $schedule->command('expedition:generate')->cron('0 */6 * * *');
-        $schedule->command('mission:generate')->cron('0 */6 * * *');
+        $schedule->command('expedition:generate')
+            ->cron('0 */6 * * *')
+            ->withoutOverlapping();
+
+        $schedule->command('mission:generate')
+            ->cron('0 */6 * * *')
+            ->withoutOverlapping();
 
         // Update rankings hourly
-        $schedule->command('rank:update')->hourly();
+        $schedule->command('rank:update')
+            ->hourly()
+            ->withoutOverlapping();
     }
 
     /**

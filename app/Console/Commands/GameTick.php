@@ -15,6 +15,7 @@ use App\Models\Upgrade;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Database\DatabaseManager;
+use Illuminate\Support\Facades\Cache;
 
 class GameTick extends Command
 {
@@ -31,6 +32,21 @@ class GameTick extends Command
      * @var string
      */
     protected $description = 'Process all pending game events (constructions, upgrades, trainings, research, movements)';
+
+    /**
+     * Lock key for preventing parallel execution.
+     */
+    const LOCK_KEY = 'game_tick_running';
+
+    /**
+     * Lock duration in seconds (safety release after 5 minutes).
+     */
+    const LOCK_TTL = 300;
+
+    /**
+     * Max records to process per chunk.
+     */
+    const CHUNK_SIZE = 100;
 
     /**
      * The database manager instance.
@@ -59,84 +75,126 @@ class GameTick extends Command
         ResearchManager $researchManager,
         MovementManager $movementManager
     ): int {
+        // Acquire lock to prevent parallel execution
+        $lock = Cache::lock(self::LOCK_KEY, self::LOCK_TTL);
+
+        if (! $lock->get()) {
+            $this->warn('Game tick already running. Skipping.');
+
+            return 0;
+        }
+
+        try {
+            return $this->processTick(
+                $constructionManager,
+                $upgradeManager,
+                $trainingManager,
+                $researchManager,
+                $movementManager
+            );
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * Process all pending game events.
+     */
+    protected function processTick(
+        ConstructionManager $constructionManager,
+        UpgradeManager $upgradeManager,
+        TrainingManager $trainingManager,
+        ResearchManager $researchManager,
+        MovementManager $movementManager
+    ): int {
         $now = Carbon::now();
         $processed = 0;
         $errors = 0;
 
-        // Process finished constructions
-        $constructions = Construction::where('ended_at', '<=', $now)->get();
-        foreach ($constructions as $construction) {
-            try {
-                $this->database->transaction(function () use ($constructionManager, $construction) {
-                    $constructionManager->finish($construction);
-                });
-                $processed++;
-                $this->line("Construction [{$construction->id}] finished.");
-            } catch (\Exception $e) {
-                $errors++;
-                $this->error("Construction [{$construction->id}] failed: {$e->getMessage()}");
-            }
-        }
+        // Process finished constructions (chunked)
+        Construction::where('ended_at', '<=', $now)
+            ->orderBy('ended_at')
+            ->chunk(self::CHUNK_SIZE, function ($constructions) use ($constructionManager, &$processed, &$errors) {
+                foreach ($constructions as $construction) {
+                    try {
+                        $this->database->transaction(function () use ($constructionManager, $construction) {
+                            $constructionManager->finish($construction);
+                        });
+                        $processed++;
+                    } catch (\Exception $e) {
+                        $errors++;
+                        $this->error("Construction [{$construction->id}] failed: {$e->getMessage()}");
+                    }
+                }
+            });
 
-        // Process finished upgrades
-        $upgrades = Upgrade::where('ended_at', '<=', $now)->get();
-        foreach ($upgrades as $upgrade) {
-            try {
-                $this->database->transaction(function () use ($upgradeManager, $upgrade) {
-                    $upgradeManager->finish($upgrade);
-                });
-                $processed++;
-                $this->line("Upgrade [{$upgrade->id}] finished.");
-            } catch (\Exception $e) {
-                $errors++;
-                $this->error("Upgrade [{$upgrade->id}] failed: {$e->getMessage()}");
-            }
-        }
+        // Process finished upgrades (chunked)
+        Upgrade::where('ended_at', '<=', $now)
+            ->orderBy('ended_at')
+            ->chunk(self::CHUNK_SIZE, function ($upgrades) use ($upgradeManager, &$processed, &$errors) {
+                foreach ($upgrades as $upgrade) {
+                    try {
+                        $this->database->transaction(function () use ($upgradeManager, $upgrade) {
+                            $upgradeManager->finish($upgrade);
+                        });
+                        $processed++;
+                    } catch (\Exception $e) {
+                        $errors++;
+                        $this->error("Upgrade [{$upgrade->id}] failed: {$e->getMessage()}");
+                    }
+                }
+            });
 
-        // Process finished trainings
-        $trainings = Training::where('ended_at', '<=', $now)->get();
-        foreach ($trainings as $training) {
-            try {
-                $this->database->transaction(function () use ($trainingManager, $training) {
-                    $trainingManager->finish($training);
-                });
-                $processed++;
-                $this->line("Training [{$training->id}] finished.");
-            } catch (\Exception $e) {
-                $errors++;
-                $this->error("Training [{$training->id}] failed: {$e->getMessage()}");
-            }
-        }
+        // Process finished trainings (chunked)
+        Training::where('ended_at', '<=', $now)
+            ->orderBy('ended_at')
+            ->chunk(self::CHUNK_SIZE, function ($trainings) use ($trainingManager, &$processed, &$errors) {
+                foreach ($trainings as $training) {
+                    try {
+                        $this->database->transaction(function () use ($trainingManager, $training) {
+                            $trainingManager->finish($training);
+                        });
+                        $processed++;
+                    } catch (\Exception $e) {
+                        $errors++;
+                        $this->error("Training [{$training->id}] failed: {$e->getMessage()}");
+                    }
+                }
+            });
 
-        // Process finished research
-        $researches = Research::where('ended_at', '<=', $now)->get();
-        foreach ($researches as $research) {
-            try {
-                $this->database->transaction(function () use ($researchManager, $research) {
-                    $researchManager->finish($research);
-                });
-                $processed++;
-                $this->line("Research [{$research->id}] finished.");
-            } catch (\Exception $e) {
-                $errors++;
-                $this->error("Research [{$research->id}] failed: {$e->getMessage()}");
-            }
-        }
+        // Process finished research (chunked)
+        Research::where('ended_at', '<=', $now)
+            ->orderBy('ended_at')
+            ->chunk(self::CHUNK_SIZE, function ($researches) use ($researchManager, &$processed, &$errors) {
+                foreach ($researches as $research) {
+                    try {
+                        $this->database->transaction(function () use ($researchManager, $research) {
+                            $researchManager->finish($research);
+                        });
+                        $processed++;
+                    } catch (\Exception $e) {
+                        $errors++;
+                        $this->error("Research [{$research->id}] failed: {$e->getMessage()}");
+                    }
+                }
+            });
 
-        // Process finished movements
-        $movements = Movement::where('ended_at', '<=', $now)->get();
-        foreach ($movements as $movement) {
-            try {
-                $this->database->transaction(function () use ($movementManager, $movement) {
-                    $movementManager->finish($movement);
-                });
-                $processed++;
-                $this->line("Movement [{$movement->id}] finished.");
-            } catch (\Exception $e) {
-                $errors++;
-                $this->error("Movement [{$movement->id}] failed: {$e->getMessage()}");
-            }
-        }
+        // Process finished movements (chunked)
+        Movement::where('ended_at', '<=', $now)
+            ->orderBy('ended_at')
+            ->chunk(self::CHUNK_SIZE, function ($movements) use ($movementManager, &$processed, &$errors) {
+                foreach ($movements as $movement) {
+                    try {
+                        $this->database->transaction(function () use ($movementManager, $movement) {
+                            $movementManager->finish($movement);
+                        });
+                        $processed++;
+                    } catch (\Exception $e) {
+                        $errors++;
+                        $this->error("Movement [{$movement->id}] failed: {$e->getMessage()}");
+                    }
+                }
+            });
 
         $this->info("Game tick complete. Processed: {$processed}, Errors: {$errors}");
 
