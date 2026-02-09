@@ -20,27 +20,27 @@
 
         <div class="form-group">
             <label for="db_host">Database Host</label>
-            <input type="text" id="db_host" name="db_host" value="{{ old('db_host', 'localhost') }}" required>
+            <input type="text" id="db_host" name="db_host" value="{{ old('db_host', trimQuotes($defaults['db_host'] ?? 'localhost')) }}" required>
         </div>
 
         <div class="form-group">
             <label for="db_port">Database Port</label>
-            <input type="number" id="db_port" name="db_port" value="{{ old('db_port', '3306') }}" required>
+            <input type="number" id="db_port" name="db_port" value="{{ old('db_port', trimQuotes($defaults['db_port'] ?? '3306')) }}" required>
         </div>
 
         <div class="form-group">
             <label for="db_database">Database Name</label>
-            <input type="text" id="db_database" name="db_database" value="{{ old('db_database', '') }}" required placeholder="e.g. u123456789_galaxy">
+            <input type="text" id="db_database" name="db_database" value="{{ old('db_database', trimQuotes($defaults['db_database'] ?? '')) }}" required placeholder="e.g. u123456789_galaxy">
         </div>
 
         <div class="form-group">
             <label for="db_username">Database Username</label>
-            <input type="text" id="db_username" name="db_username" value="{{ old('db_username', '') }}" required placeholder="e.g. u123456789_admin">
+            <input type="text" id="db_username" name="db_username" value="{{ old('db_username', trimQuotes($defaults['db_username'] ?? '')) }}" required placeholder="e.g. u123456789_admin">
         </div>
 
         <div class="form-group">
             <label for="db_password">Database Password</label>
-            <input type="password" id="db_password" name="db_password" value="{{ old('db_password', '') }}" placeholder="Your database password">
+            <input type="password" id="db_password" name="db_password" value="{{ old('db_password', trimQuotes($defaults['db_password'] ?? '')) }}" placeholder="Your database password">
         </div>
 
         <div id="testResult" style="display:none;" class="alert"></div>

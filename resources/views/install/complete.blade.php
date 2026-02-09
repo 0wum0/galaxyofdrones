@@ -25,7 +25,7 @@
     @if ($cronToken)
     <div style="margin-top: 16px;">
         <p style="color: #78909c; margin-bottom: 8px;">Alternative: HTTP Cron Endpoint (if shell cron is not available):</p>
-        <div class="log-output" style="font-size: 12px;">GET {{ url('/cron/tick') }}?token={{ $cronToken }}</div>
+        <div class="log-output" style="font-size: 12px;">GET {{ url('/cron/tick') }}?token={{ trimQuotes($cronToken) }}</div>
         <p style="color: #546e7a; font-size: 12px; margin-top: 8px;">
             Use an external cron service (e.g. cron-job.org) to call this URL every minute.
         </p>
