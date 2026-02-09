@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\ScoutController;
 use App\Http\Controllers\Api\SettingController;
 use App\Http\Controllers\Api\ShieldController;
 use App\Http\Controllers\Api\StarController;
+use App\Http\Controllers\Api\StarmapChunkController;
 use App\Http\Controllers\Api\StarmapController;
 use App\Http\Controllers\Api\StatusController;
 use App\Http\Controllers\Api\TrainerController;
@@ -162,6 +163,16 @@ Route::group([
         ->name('starmap_geo_json')
         ->where('zoom', '\d')
         ->where('bounds', '[-0-9\.,]+');
+
+    // Chunk-based map API for lazy loading (Phase 5 performance)
+    Route::get('chunk', [StarmapChunkController::class, 'chunk'])
+        ->name('starmap_chunk');
+
+    Route::post('chunks', [StarmapChunkController::class, 'chunks'])
+        ->name('starmap_chunks');
+
+    Route::get('meta', [StarmapChunkController::class, 'meta'])
+        ->name('starmap_meta');
 });
 
 Route::group([
