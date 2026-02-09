@@ -27,6 +27,7 @@ Route::group([
     Route::get('/', [InstallController::class, 'index'])->name('index');
     Route::get('/database', [InstallController::class, 'database'])->name('database');
     Route::post('/test-database', [InstallController::class, 'testDatabase'])->name('test_database');
+    Route::post('/database', [InstallController::class, 'testDatabase'])->name('database_post'); // Alias: prevents 405 if form posts to /install/database
     Route::post('/environment', [InstallController::class, 'environment'])->name('environment');
     Route::get('/migrate', [InstallController::class, 'migrate'])->name('migrate');
     Route::get('/admin', [InstallController::class, 'admin'])->name('admin');

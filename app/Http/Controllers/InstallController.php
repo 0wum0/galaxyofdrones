@@ -53,11 +53,22 @@ class InstallController extends Controller
 
     /**
      * Step 2b: Test database connection.
+     *
+     * - AJAX / JSON requests: returns JSON (used by the "Test Connection" button).
+     * - Regular form POST: validates & tests the connection, then delegates to
+     *   environment() which writes .env and redirects to the next step.
+     *   This prevents the installer from getting stuck when the form posts here
+     *   instead of /install/environment.
      */
     public function testDatabase(Request $request)
     {
+        $wantsJson = $request->expectsJson() || $request->ajax();
+
         if ($this->isInstalled()) {
-            return response()->json(['success' => false, 'message' => 'Already installed.']);
+            if ($wantsJson) {
+                return response()->json(['success' => false, 'message' => 'Already installed.']);
+            }
+            return redirect('/');
         }
 
         $validator = Validator::make($request->all(), [
@@ -69,7 +80,10 @@ class InstallController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['success' => false, 'message' => 'Validation failed.', 'errors' => $validator->errors()]);
+            if ($wantsJson) {
+                return response()->json(['success' => false, 'message' => 'Validation failed.', 'errors' => $validator->errors()]);
+            }
+            return redirect()->back()->withErrors($validator)->withInput();
         }
 
         // Sanitize: strip surrounding quotes that may have been pasted in
@@ -87,11 +101,25 @@ class InstallController extends Controller
                 [\PDO::ATTR_TIMEOUT => 5]
             );
             $connection = null;
-
-            return response()->json(['success' => true, 'message' => 'Database connection successful!']);
         } catch (\PDOException $e) {
-            return response()->json(['success' => false, 'message' => 'Connection failed: ' . $this->sanitizeError($e->getMessage())]);
+            $errorMsg = 'Connection failed: ' . $this->sanitizeError($e->getMessage());
+
+            if ($wantsJson) {
+                return response()->json(['success' => false, 'message' => $errorMsg]);
+            }
+            return redirect()->back()
+                ->withErrors(['db_host' => $errorMsg])
+                ->withInput();
         }
+
+        // --- AJAX: return JSON result ---
+        if ($wantsJson) {
+            return response()->json(['success' => true, 'message' => 'Database connection successful!']);
+        }
+
+        // --- Form submission: connection OK → delegate to environment() to
+        //     write .env and proceed to the next installer step. ---
+        return $this->environment($request);
     }
 
     /**
