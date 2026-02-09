@@ -227,18 +227,137 @@ php artisan view:cache
 php artisan route:cache
 ```
 
-## Fehlerbehebung
+## QA / Smoke Tests (Checkliste nach Deployment)
+
+Nach dem Deployment und vor dem produktiven Betrieb sollten diese Tests durchgefuehrt werden:
+
+### 1. Web-Tests (im Browser)
+
+| Test | URL / Aktion | Erwartetes Ergebnis |
+|------|-------------|---------------------|
+| Installer oeffnen | `https://god.makeit.uno/install` | Requirements-Seite wird angezeigt (kein 500) |
+| DB Step | Datenbank-Formular ausfuellen + "Test Connection" | JSON-Antwort "Connection successful" (kein 419) |
+| DB Step POST | Formular absenden | Weiterleitung zu Migrate-Step (kein 419 Page Expired) |
+| Migrate Step | Automatisch nach DB Step | Migrationen + Seeder laufen durch (gruen) |
+| Admin erstellen | Username/Email/Passwort eingeben | Admin-User wird erstellt, Weiterleitung zu Complete |
+| Complete | Nach Admin-Erstellung | Cron-Token wird angezeigt, Lock-File erstellt |
+| Startseite | `https://god.makeit.uno/` | Login/Register-Seite (nach Installation) |
+| Admin Panel | `https://god.makeit.uno/admin` | Admin Dashboard (nach Login) |
+
+### 2. Terminal/SSH-Tests
+
+```bash
+cd ~/domains/god.makeit.uno   # oder entsprechendes Projektverzeichnis
+
+# Test 1: HTTPS-Erkennung hinter Proxy
+php artisan tinker --execute="dump(request()->isSecure());"
+# Erwartung: true (wenn ueber HTTPS aufgerufen)
+
+# Test 2: DB-Verbindung
+php -r "
+require 'vendor/autoload.php';
+\$app = require_once 'bootstrap/app.php';
+\$app->make('Illuminate\Contracts\Console\Kernel')->bootstrap();
+try {
+    \$pdo = DB::connection()->getPdo();
+    echo 'DB OK: ' . \$pdo->getAttribute(PDO::ATTR_SERVER_INFO) . PHP_EOL;
+} catch (Exception \$e) {
+    echo 'DB FEHLER: ' . \$e->getMessage() . PHP_EOL;
+}
+"
+
+# Test 3: .env korrekt geladen
+php artisan tinker --execute="dump(config('app.env'), config('app.url'), config('database.connections.mysql.host'));"
+
+# Test 4: Session-Verzeichnis beschreibbar
+php -r "echo is_writable('storage/framework/sessions') ? 'Sessions: OK' : 'Sessions: NICHT SCHREIBBAR'; echo PHP_EOL;"
+
+# Test 5: APP_KEY gesetzt
+php artisan tinker --execute="dump(config('app.key'));"
+# Erwartung: base64:... (kein leerer Wert)
+
+# Test 6: Cron-Endpoint testen
+curl -s -o /dev/null -w "%{http_code}" "https://god.makeit.uno/cron/tick?token=DEIN_TOKEN"
+# Erwartung: 200 (mit korrektem Token) oder 403 (mit falschem Token)
+```
+
+### 3. Sicherheits-Schnelltest
+
+```bash
+# Sensitive Pfade muessen blockiert sein (403 oder 404):
+for path in .env .git/config vendor/autoload.php storage/logs/laravel.log \
+  bootstrap/app.php config/app.php database/ routes/web.php \
+  resources/ app/Models/User.php composer.json artisan; do
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://god.makeit.uno/$path")
+  echo "$STATUS - /$path"
+done
+# Alle muessen 403 oder 404 sein, NICHT 200
+```
+
+---
+
+## Fehlerbehebung / Troubleshooting
 
 ### 500 Internal Server Error
 ```bash
 # Pruefe die Logs
-cat storage/logs/laravel.log | tail -50
+tail -50 storage/logs/laravel.log
 
 # Cache leeren
 php artisan config:clear
 php artisan cache:clear
 php artisan route:clear
+php artisan view:clear
 ```
+
+**Haeufige Ursache: TrustProxies**
+
+Wenn im Log steht:
+```
+Undefined constant Illuminate\Http\Request::HEADER_X_FORWARDED_ALL
+```
+
+**Fix:** Die Datei `app/Http/Middleware/TrustProxies.php` muss die Symfony-Konstanten
+verwenden statt `Illuminate\Http\Request::HEADER_X_FORWARDED_ALL` (wurde in Symfony 6 entfernt):
+
+```php
+use Symfony\Component\HttpFoundation\Request as SymfonyRequest;
+
+protected $headers =
+    SymfonyRequest::HEADER_X_FORWARDED_FOR |
+    SymfonyRequest::HEADER_X_FORWARDED_HOST |
+    SymfonyRequest::HEADER_X_FORWARDED_PORT |
+    SymfonyRequest::HEADER_X_FORWARDED_PROTO |
+    SymfonyRequest::HEADER_X_FORWARDED_PREFIX;
+```
+
+### 419 Page Expired (CSRF Token Mismatch)
+
+Moegliche Ursachen und Loesungen:
+
+1. **Session-Verzeichnis nicht beschreibbar:**
+   ```bash
+   chmod -R 775 storage/framework/sessions
+   ```
+
+2. **TrustProxies fehlerhaft:** Wenn HTTPS nicht korrekt erkannt wird,
+   generiert Laravel Session-Cookies mit falschen Secure-Flags.
+   → Siehe TrustProxies-Fix oben.
+
+3. **Session-Cookie Domain falsch:** Pruefe in `.env`:
+   ```
+   SESSION_DOMAIN=null
+   SESSION_SECURE_COOKIE=null
+   ```
+   `null` bedeutet: Laravel erkennt die Domain und HTTPS automatisch.
+
+4. **Config-Cache veraltet:**
+   ```bash
+   php artisan config:clear
+   ```
+
+5. **Formular hat kein @csrf Token:** Alle POST-Formulare muessen
+   `@csrf` enthalten (ist in den Installer-Views bereits vorhanden).
 
 ### Storage-Symlink erstellen
 ```bash
@@ -248,6 +367,32 @@ php artisan storage:link
 ### Berechtigungsprobleme
 ```bash
 chmod -R 775 storage bootstrap/cache
+```
+
+### .env Passwort mit Sonderzeichen
+
+Wenn `DB_PASSWORD` Sonderzeichen enthaelt (`$`, `#`, `"`, Leerzeichen),
+muss der Wert in der `.env` in doppelten Anfuehrungszeichen stehen.
+Der Web-Installer macht das automatisch. Bei manueller Bearbeitung:
+
+```
+# Richtig:
+DB_PASSWORD="mein$uper#passwort"
+
+# Falsch ($ wird als Variable interpretiert):
+DB_PASSWORD=mein$uper#passwort
+```
+
+### Route-Cache Fehler
+
+Falls `php artisan route:cache` fehlschlaegt mit "Unable to prepare route
+for serialization. Uses Closure.": Das ist normal. Closure-basierte Routen
+(z.B. in console.php) koennen nicht gecacht werden. Verwende stattdessen:
+
+```bash
+php artisan config:cache
+php artisan view:cache
+# route:cache NICHT ausfuehren!
 ```
 
 ---
@@ -366,3 +511,78 @@ for path in .env .git/config vendor/autoload.php storage/logs/laravel.log \
   echo "$STATUS - /$path"
 done
 ```
+
+---
+
+## Kurzanleitung: Deployment auf Hostinger (Schritt fuer Schritt)
+
+### 1. Dateien deployen
+
+```bash
+# Per SSH verbinden und Projekt hochladen
+ssh u123456789@god.makeit.uno
+cd ~/domains/god.makeit.uno   # oder public_html Verzeichnis
+
+# Git Clone oder ZIP entpacken
+git clone https://github.com/youruser/galaxyofdrones.git .
+# ODER: Dateien per FTP/File Manager hochladen
+```
+
+### 2. Composer install
+
+```bash
+cd ~/domains/god.makeit.uno
+
+# Wenn sodium Extension fehlt:
+# Im hPanel: PHP Konfiguration > Extensions > sodium aktivieren
+# Oder --ignore-platform-req=ext-sodium hinzufuegen
+
+composer install --no-dev --optimize-autoloader --no-interaction
+```
+
+**Hinweis:** `package:discover` wird beim ersten Install automatisch
+uebersprungen (kein .env vorhanden). Das ist beabsichtigt – der Web-Installer
+fuehrt es spaeter aus.
+
+### 3. Rechte setzen
+
+```bash
+chmod -R 775 storage
+chmod -R 775 bootstrap/cache
+# Sicherstellen dass sessions-Verzeichnis existiert:
+mkdir -p storage/framework/sessions
+mkdir -p storage/framework/cache
+mkdir -p storage/framework/views
+mkdir -p storage/logs
+```
+
+### 4. Web-Installer durchklicken
+
+1. Oeffne `https://god.makeit.uno/install`
+2. Requirements pruefen (alle gruen = OK)
+3. Datenbank-Zugangsdaten eingeben → "Test Connection" → "Next: Install"
+4. Migrationen laufen automatisch
+5. Admin-Benutzer erstellen
+6. Fertig! Cron-Token notieren.
+
+### 5. Cache-Befehle (nach Installation)
+
+```bash
+# Nur wenn du .env manuell aenderst:
+php artisan config:clear
+php artisan config:cache
+php artisan view:cache
+
+# NICHT ausfuehren (Closure-Routes!):
+# php artisan route:cache
+```
+
+### 6. Cron-Job einrichten
+
+Im hPanel unter Erweitert > Cron Jobs:
+
+```
+* * * * * cd /home/u123456789/domains/god.makeit.uno && php artisan schedule:run >> /dev/null 2>&1
+```
+
+Oder per HTTP-Cron: `https://god.makeit.uno/cron/tick?token=DEIN_CRON_TOKEN`

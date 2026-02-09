@@ -180,7 +180,15 @@ class InstallController extends Controller
 
         $envPath = base_path('.env');
         file_put_contents($envPath, $envContent);
-        chmod($envPath, 0600);
+        @chmod($envPath, 0600);
+
+        // Clear any cached config so the new .env values take effect.
+        // Note: Do NOT run route:cache here – Closure-based routes prevent it.
+        try {
+            Artisan::call('config:clear');
+        } catch (\Exception $e) {
+            // Ignore – config:clear may fail on first install (no cached config)
+        }
 
         // Store data in session for next steps
         $request->session()->put('install_env_written', true);
@@ -480,6 +488,35 @@ class InstallController extends Controller
             ];
         }
 
+        // Explicit session-writability check: attempt to create and delete a temp file
+        // in the sessions directory to verify the file-session driver will work.
+        $sessDir = storage_path('framework/sessions');
+        $sessionWritable = false;
+        $sessionStatus = 'Not writable';
+
+        if (is_dir($sessDir) && is_writable($sessDir)) {
+            $testFile = $sessDir . '/.session_write_test_' . uniqid();
+            try {
+                if (@file_put_contents($testFile, 'test') !== false) {
+                    $sessionWritable = true;
+                    $sessionStatus = 'Writable (session files OK)';
+                    @unlink($testFile);
+                } else {
+                    $sessionStatus = 'Directory exists but cannot write files';
+                }
+            } catch (\Exception $e) {
+                $sessionStatus = 'Write test failed: ' . $e->getMessage();
+            }
+        } elseif (! is_dir($sessDir)) {
+            $sessionStatus = 'Directory missing – create it with: mkdir -p storage/framework/sessions';
+        }
+
+        $permissions[] = [
+            'name' => 'Sessions writable (file driver)',
+            'current' => $sessionStatus,
+            'passed' => $sessionWritable,
+        ];
+
         return $permissions;
     }
 
@@ -496,9 +533,11 @@ class InstallController extends Controller
      *
      * Quoting rules:
      *  - Quote ONLY when the value contains characters that break .env parsing:
-     *    spaces, #, or literal double-quotes.
-     *  - Do NOT quote base64 keys, passwords, or tokens just because they
-     *    contain /, +, or trailing = (these are safe unquoted in .env).
+     *    spaces, #, =, $, !, \, `, or literal double-quotes.
+     *  - APP_KEY in base64:... format is NEVER quoted (safe as-is).
+     *  - DB_PASSWORD and other values with special chars get double-quoted,
+     *    with internal double-quotes and backslashes escaped.
+     *  - Empty values are written without quotes: KEY=
      */
     protected function buildEnvContent(array $values): string
     {
@@ -515,15 +554,36 @@ class InstallController extends Controller
             }
             $lastGroup = $group;
 
-            // Only quote when the value contains characters that would break
-            // .env parsing: spaces, # (comment char), or literal " inside the value.
-            $needsQuoting = str_contains($value, ' ')
-                || str_contains($value, '#')
-                || str_contains($value, '"');
+            // Empty values: write as KEY= (no quotes)
+            if ($value === '' || $value === null) {
+                $lines[] = "{$key}=";
+                continue;
+            }
+
+            // APP_KEY with base64: prefix is safe unquoted
+            if ($key === 'APP_KEY' && str_starts_with($value, 'base64:')) {
+                $lines[] = "{$key}={$value}";
+                continue;
+            }
+
+            // Check if quoting is needed: spaces, #, ", $, !, \, `, =
+            // These characters can break .env parsing or cause variable
+            // interpolation issues in some parsers.
+            $needsQuoting = $value !== ''
+                && (str_contains($value, ' ')
+                    || str_contains($value, '#')
+                    || str_contains($value, '"')
+                    || str_contains($value, '$')
+                    || str_contains($value, '\\')
+                    || str_contains($value, '`')
+                    || str_contains($value, '!'));
 
             if ($needsQuoting) {
-                // Escape existing double quotes inside the value
-                $escaped = str_replace('"', '\\"', $value);
+                // Escape backslashes first, then double quotes
+                $escaped = str_replace('\\', '\\\\', $value);
+                $escaped = str_replace('"', '\\"', $escaped);
+                // Escape $ to prevent variable interpolation
+                $escaped = str_replace('$', '\\$', $escaped);
                 $value = '"' . $escaped . '"';
             }
 
