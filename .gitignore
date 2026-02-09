@@ -4,6 +4,7 @@
 /public/tile
 /public/storage
 /storage/*.key
+/storage/installed.lock
 /vendor
 .env
 .env.backup
