@@ -1,0 +1,226 @@
+/*
+ * Minimal fallback stylesheet.
+ * This file provides basic styling so the application is usable
+ * without a full Laravel Mix / webpack build.
+ *
+ * Run "npm run prod" to generate the complete compiled CSS.
+ */
+
+/* ---- Reset & Base ---- */
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+    font-size: 1rem;
+    font-weight: 400;
+    line-height: 1.5;
+    color: #212529;
+    background-color: #1a1a2e;
+}
+
+a {
+    color: #5dade2;
+    text-decoration: none;
+}
+
+a:hover {
+    color: #3498db;
+    text-decoration: underline;
+}
+
+img.img-fluid {
+    max-width: 100%;
+    height: auto;
+}
+
+/* ---- Container ---- */
+.container-app {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 2rem 1rem;
+}
+
+.container-app-standalone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    justify-content: center;
+}
+
+/* ---- Logo ---- */
+.logo {
+    display: block;
+    text-align: center;
+    margin-bottom: 1.5rem;
+}
+
+.logo img {
+    max-width: 200px;
+}
+
+/* ---- Card ---- */
+.card {
+    background-color: #16213e;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.5rem;
+    width: 100%;
+    margin-bottom: 1rem;
+    color: #e0e0e0;
+}
+
+.card-header {
+    padding: 0.75rem 1.25rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    background-color: rgba(0, 0, 0, 0.15);
+    border-radius: 0.5rem 0.5rem 0 0;
+}
+
+.card-title {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #ffffff;
+}
+
+.card-body {
+    padding: 1.25rem;
+}
+
+.card-footer {
+    padding: 0.75rem 1.25rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+.card-footer:last-child {
+    border-radius: 0 0 0.5rem 0.5rem;
+}
+
+.card-footer.text-center {
+    text-align: center;
+}
+
+/* ---- Forms ---- */
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-weight: 500;
+    color: #cccccc;
+}
+
+.form-control {
+    display: block;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    font-size: 1rem;
+    line-height: 1.5;
+    color: #e0e0e0;
+    background-color: #0f3460;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 0.375rem;
+    transition: border-color 0.15s ease-in-out;
+}
+
+.form-control-lg {
+    padding: 0.65rem 1rem;
+    font-size: 1.1rem;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: #5dade2;
+    box-shadow: 0 0 0 0.2rem rgba(93, 173, 226, 0.25);
+}
+
+.form-control.is-invalid {
+    border-color: #e74c3c;
+}
+
+.invalid-feedback {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.875rem;
+    color: #e74c3c;
+}
+
+/* ---- Checkbox ---- */
+.form-check {
+    padding-left: 1.25rem;
+}
+
+.form-check-label {
+    cursor: pointer;
+    color: #cccccc;
+}
+
+.form-check-input {
+    margin-right: 0.5rem;
+}
+
+/* ---- Buttons ---- */
+.btn {
+    display: inline-block;
+    font-weight: 500;
+    text-align: center;
+    vertical-align: middle;
+    cursor: pointer;
+    padding: 0.5rem 1rem;
+    font-size: 1rem;
+    line-height: 1.5;
+    border-radius: 0.375rem;
+    border: 1px solid transparent;
+    transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out;
+    text-decoration: none;
+    color: #ffffff;
+}
+
+.btn-primary {
+    background-color: #2980b9;
+    border-color: #2980b9;
+}
+
+.btn-primary:hover {
+    background-color: #1f6fa3;
+    border-color: #1a5f8c;
+}
+
+.btn-lg {
+    padding: 0.65rem 1.25rem;
+    font-size: 1.1rem;
+}
+
+.btn-block {
+    display: block;
+    width: 100%;
+}
+
+.btn-link {
+    background: none;
+    border: none;
+    color: #5dade2;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.btn-link:hover {
+    color: #3498db;
+}
+
+/* ---- Utilities ---- */
+.mb-0 { margin-bottom: 0 !important; }
+.mb-1 { margin-bottom: 0.25rem !important; }
+.p-0 { padding: 0 !important; }
+.m-0 { margin: 0 !important; }
+.d-inline { display: inline !important; }
+.text-center { text-align: center !important; }
+.align-baseline { vertical-align: baseline !important; }

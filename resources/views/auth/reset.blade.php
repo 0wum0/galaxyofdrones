@@ -10,7 +10,7 @@
     <section id="app" class="container-app container-app-standalone">
         <a class="logo" href="{{ route('home') }}">
             <img class="img-fluid"
-                 src="{{ mix('images/logo.png') }}"
+                 src="{{ asset('images/logo.png') }}"
                  alt="{{ setting('title') }}">
         </a>
         <div class="card">
