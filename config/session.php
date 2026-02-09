@@ -168,7 +168,10 @@ return [
     |
     */
 
-    'secure' => env('SESSION_SECURE_COOKIE'),
+    // On shared hosting behind a reverse proxy, the app may not see HTTPS
+    // directly. Setting this to null lets Laravel auto-detect based on the
+    // current request scheme (which TrustProxies makes reliable).
+    'secure' => env('SESSION_SECURE_COOKIE', null),
 
     /*
     |--------------------------------------------------------------------------

@@ -81,7 +81,19 @@ function testConnection() {
         },
         body: JSON.stringify(data),
     })
-    .then(r => r.json())
+    .then(r => {
+        if (r.status === 419) {
+            // CSRF token mismatch – session may have expired
+            throw new Error('Session expired (419). Please reload the page and try again.');
+        }
+        if (r.status === 500) {
+            throw new Error('Server error (500). Check storage/logs/laravel.log for details.');
+        }
+        if (!r.ok) {
+            throw new Error('Request failed with status ' + r.status);
+        }
+        return r.json();
+    })
     .then(data => {
         result.style.display = 'block';
         result.className = 'alert ' + (data.success ? 'alert-success' : 'alert-danger');
@@ -90,7 +102,7 @@ function testConnection() {
     .catch(e => {
         result.style.display = 'block';
         result.className = 'alert alert-danger';
-        result.textContent = 'Connection test failed. Please check your details.';
+        result.textContent = e.message || 'Connection test failed. Please check your details.';
     })
     .finally(() => {
         btn.disabled = false;
