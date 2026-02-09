@@ -173,6 +173,11 @@ class InstallController extends Controller
         // Generate CRON_TOKEN
         $cronToken = Str::random(32);
 
+        // Detect session domain: for subdomains (e.g. god.makeit.uno) use
+        // the root domain (.makeit.uno) so cookies work across subdomains.
+        // For bare domains or localhost, use null (auto-detect).
+        $sessionDomain = $this->detectSessionDomain($request->getHost());
+
         // Write .env file – using sanitized (unquoted) values
         $envContent = $this->buildEnvContent([
             'APP_NAME' => 'Galaxy of Drones Online',
@@ -195,6 +200,9 @@ class InstallController extends Controller
             'QUEUE_CONNECTION' => 'sync',
             'SESSION_DRIVER' => 'file',
             'SESSION_LIFETIME' => '120',
+            'SESSION_DOMAIN' => $sessionDomain,
+            'SESSION_SECURE_COOKIE' => $request->isSecure() ? 'true' : 'null',
+            'SESSION_SAME_SITE' => 'lax',
             'MAIL_MAILER' => 'smtp',
             'MAIL_HOST' => 'localhost',
             'MAIL_PORT' => '587',
@@ -210,12 +218,15 @@ class InstallController extends Controller
         file_put_contents($envPath, $envContent);
         @chmod($envPath, 0600);
 
-        // Clear any cached config so the new .env values take effect.
-        // Note: Do NOT run route:cache here – Closure-based routes prevent it.
-        try {
-            Artisan::call('config:clear');
-        } catch (\Exception $e) {
-            // Ignore – config:clear may fail on first install (no cached config)
+        // Clear ALL caches so the new .env values take effect immediately.
+        // This is critical on shared hosting where stale config caches
+        // cause 419 CSRF errors (session settings mismatch).
+        foreach (['config:clear', 'cache:clear', 'view:clear', 'route:clear'] as $cmd) {
+            try {
+                Artisan::call($cmd);
+            } catch (\Exception $e) {
+                // Ignore – caches may not exist on first install
+            }
         }
 
         // Store data in session for next steps
@@ -392,28 +403,21 @@ class InstallController extends Controller
         ]));
 
         // ---------------------------------------------------------------
-        // Post-install: clear stale caches and run package:discover
+        // Post-install: clear ALL stale caches and run package:discover.
         // During the initial "composer install" these were skipped because
         // .env / installed.lock did not exist yet. Now we catch up.
+        //
+        // cache:clear is critical: on shared hosting (Hostinger) a stale
+        // application cache can cause 419 CSRF errors after installation.
         // ---------------------------------------------------------------
         $postInstallErrors = [];
 
-        try {
-            Artisan::call('config:clear');
-        } catch (\Exception $e) {
-            $postInstallErrors[] = 'config:clear – ' . $this->sanitizeError($e->getMessage());
-        }
-
-        try {
-            Artisan::call('route:clear');
-        } catch (\Exception $e) {
-            $postInstallErrors[] = 'route:clear – ' . $this->sanitizeError($e->getMessage());
-        }
-
-        try {
-            Artisan::call('view:clear');
-        } catch (\Exception $e) {
-            $postInstallErrors[] = 'view:clear – ' . $this->sanitizeError($e->getMessage());
+        foreach (['config:clear', 'cache:clear', 'route:clear', 'view:clear'] as $clearCmd) {
+            try {
+                Artisan::call($clearCmd);
+            } catch (\Exception $e) {
+                $postInstallErrors[] = $clearCmd . ' – ' . $this->sanitizeError($e->getMessage());
+            }
         }
 
         try {
@@ -631,6 +635,36 @@ class InstallController extends Controller
         $message = preg_replace('/using password: \w+/i', 'using password: ***', $message);
 
         return Str::limit($message, 200);
+    }
+
+    /**
+     * Detect the session cookie domain from the request host.
+     *
+     * For subdomains (e.g. god.makeit.uno) returns the root domain
+     * with a leading dot (.makeit.uno) so the session cookie is shared.
+     * For bare domains, localhost, or IPs returns 'null' (Laravel auto-detect).
+     */
+    protected function detectSessionDomain(string $host): string
+    {
+        // Don't set domain for localhost or IP addresses
+        if ($host === 'localhost' || filter_var($host, FILTER_VALIDATE_IP)) {
+            return 'null';
+        }
+
+        $parts = explode('.', $host);
+
+        // Bare domain (e.g. makeit.uno) – use dot-prefixed
+        if (count($parts) === 2) {
+            return '.' . $host;
+        }
+
+        // Subdomain (e.g. god.makeit.uno) – use root domain
+        if (count($parts) >= 3) {
+            return '.' . implode('.', array_slice($parts, -2));
+        }
+
+        // Single-part host (e.g. "localhost" variant) – auto-detect
+        return 'null';
     }
 
     /**
