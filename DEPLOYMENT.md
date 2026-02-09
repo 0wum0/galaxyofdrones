@@ -337,27 +337,41 @@ Moegliche Ursachen und Loesungen:
 
 1. **Session-Verzeichnis nicht beschreibbar:**
    ```bash
+   mkdir -p storage/framework/sessions storage/framework/cache storage/framework/views
    chmod -R 775 storage/framework/sessions
+   chmod -R 775 storage
    ```
 
 2. **TrustProxies fehlerhaft:** Wenn HTTPS nicht korrekt erkannt wird,
    generiert Laravel Session-Cookies mit falschen Secure-Flags.
    → Siehe TrustProxies-Fix oben.
 
-3. **Session-Cookie Domain falsch:** Pruefe in `.env`:
+3. **Session-Cookie Konfiguration:** Pruefe diese Werte in `.env`:
    ```
-   SESSION_DOMAIN=null
-   SESSION_SECURE_COOKIE=null
+   SESSION_DRIVER=file
+   SESSION_DOMAIN=.makeit.uno
+   SESSION_SECURE_COOKIE=true
+   SESSION_SAME_SITE=lax
    ```
-   `null` bedeutet: Laravel erkennt die Domain und HTTPS automatisch.
+   - `SESSION_DOMAIN` mit fuehrendem Punkt fuer Subdomain-Kompatibilitaet
+   - `SESSION_SECURE_COOKIE=true` nur bei HTTPS (oder `null` fuer Auto-Erkennung)
+   - `SESSION_SAME_SITE=lax` ist der sicherste Default fuer normale Forms
 
-4. **Config-Cache veraltet:**
+4. **Config-Cache veraltet (haeufigste Ursache!):**
    ```bash
    php artisan config:clear
+   php artisan cache:clear
+   php artisan config:cache
    ```
+   **Wichtig:** `config:cache` darf erst nach korrekt geschriebener `.env` laufen!
+   Wenn `config:cache` mit falschen Werten gecacht wurde, erhaelt man 419 auf
+   allen POST-Requests (Login, Forms, Installer).
 
 5. **Formular hat kein @csrf Token:** Alle POST-Formulare muessen
    `@csrf` enthalten (ist in den Installer-Views bereits vorhanden).
+
+6. **Browser-Cookies loeschen:** Nach Aenderung der Session-Konfiguration
+   muessen alte Cookies im Browser geloescht werden (oder Inkognito-Tab nutzen).
 
 ### Storage-Symlink erstellen
 ```bash
@@ -612,3 +626,85 @@ Im hPanel unter Erweitert > Cron Jobs:
 ```
 
 Oder per HTTP-Cron: `https://god.makeit.uno/cron/tick?token=DEIN_CRON_TOKEN`
+
+---
+
+## Hostinger Checkliste: 419-Fix (CSRF / Session)
+
+Wenn nach dem Deployment 419 "Page Expired" Fehler auftreten, folge dieser Checkliste:
+
+### Schritt 1: Storage-Verzeichnisse pruefen/erstellen
+
+```bash
+cd ~/domains/god.makeit.uno   # Projektverzeichnis
+
+# Verzeichnisse erstellen falls fehlend
+mkdir -p storage/framework/sessions
+mkdir -p storage/framework/cache
+mkdir -p storage/framework/views
+mkdir -p storage/logs
+
+# Berechtigungen setzen
+chmod -R 775 storage
+chmod -R 775 bootstrap/cache
+```
+
+### Schritt 2: Session-Werte in .env pruefen
+
+Stelle sicher, dass diese Werte in der `.env` stehen:
+
+```
+SESSION_DRIVER=file
+SESSION_LIFETIME=120
+SESSION_DOMAIN=.makeit.uno
+SESSION_SECURE_COOKIE=true
+SESSION_SAME_SITE=lax
+```
+
+**Hinweis:** `SESSION_SECURE_COOKIE=true` nur verwenden wenn die App ueber HTTPS laeuft.
+Fuer automatische Erkennung `SESSION_SECURE_COOKIE=null` setzen.
+
+### Schritt 3: Alle Caches loeschen und neu aufbauen
+
+```bash
+# WICHTIG: In dieser Reihenfolge!
+php artisan config:clear
+php artisan cache:clear
+php artisan route:clear
+php artisan view:clear
+
+# Dann neu cachen (erst NACH korrekter .env):
+php artisan config:cache
+php artisan view:cache
+```
+
+### Schritt 4: Browser-Cookies loeschen
+
+1. Browser-Cookies fuer die Domain loeschen (oder Inkognito-Tab)
+2. Seite komplett neu laden (Ctrl+Shift+R)
+3. Login oder Installer erneut testen
+
+### Schritt 5: Verifizieren
+
+```bash
+# Session-Verzeichnis beschreibbar?
+php -r "echo is_writable('storage/framework/sessions') ? 'OK' : 'FEHLER'; echo PHP_EOL;"
+
+# Config korrekt geladen?
+php artisan tinker --execute="dump(config('session.domain'), config('session.secure'), config('session.same_site'));"
+# Erwartung: ".makeit.uno", true, "lax"
+
+# HTTPS-Erkennung hinter Proxy?
+php artisan tinker --execute="dump(request()->isSecure());"
+# Erwartung: true
+```
+
+### Typische Fehlerquellen
+
+| Problem | Ursache | Loesung |
+|---------|---------|---------|
+| 419 auf allen POST | Config-Cache mit falschen Werten | `php artisan config:clear && php artisan config:cache` |
+| 419 nur bei Login | Session-Verzeichnis nicht beschreibbar | `chmod -R 775 storage/framework/sessions` |
+| 419 nach .env Aenderung | Alter Config-Cache aktiv | `php artisan config:clear` ausfuehren |
+| Cookie wird nicht gesetzt | SECURE=true aber kein HTTPS | `SESSION_SECURE_COOKIE=null` in .env |
+| Cookie verschwindet | SESSION_DOMAIN falsch | `SESSION_DOMAIN=.makeit.uno` (mit Punkt!) |
