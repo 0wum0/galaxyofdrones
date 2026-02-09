@@ -266,9 +266,18 @@ class InstallController extends Controller
             return redirect('/');
         }
 
+        try {
+            // Reconfigure database before validation (unique rules need DB)
+            $this->reconnectDatabase();
+        } catch (\Exception $e) {
+            return redirect()->route('install.admin')
+                ->withErrors(['username' => 'Database connection failed: ' . $this->sanitizeError($e->getMessage())])
+                ->withInput();
+        }
+
         $validator = Validator::make($request->all(), [
-            'username' => 'required|string|min:3|max:20',
-            'email' => 'required|email|max:255',
+            'username' => 'required|string|min:3|max:20|unique:users,username',
+            'email' => 'required|email|max:255|unique:users,email',
             'password' => 'required|string|min:8|confirmed',
         ]);
 
@@ -277,9 +286,6 @@ class InstallController extends Controller
         }
 
         try {
-            // Reconfigure database
-            $this->reconnectDatabase();
-
             $user = User::create([
                 'username' => $request->username,
                 'email' => $request->email,
@@ -308,6 +314,14 @@ class InstallController extends Controller
             return redirect('/');
         }
 
+        // Prevent skipping steps: admin must have been created
+        if (! $request->session()->get('install_admin_created')) {
+            return redirect()->route('install.admin');
+        }
+
+        // Read CRON_TOKEN BEFORE config:cache (env() returns null after caching)
+        $cronToken = config('app.cron_token') ?: env('CRON_TOKEN', '');
+
         // Create lock file
         $lockFile = storage_path('installed.lock');
         file_put_contents($lockFile, json_encode([
@@ -316,10 +330,10 @@ class InstallController extends Controller
             'laravel_version' => app()->version(),
         ]));
 
-        // Cache config for performance
+        // Cache config and views for performance
+        // Note: route:cache is skipped because Closure-based routes (console.php) are not cacheable
         try {
             Artisan::call('config:cache');
-            Artisan::call('route:cache');
             Artisan::call('view:cache');
         } catch (\Exception $e) {
             // Non-critical, continue
@@ -327,8 +341,6 @@ class InstallController extends Controller
 
         // Clear install session data
         $request->session()->forget(['install_env_written', 'install_migrated', 'install_admin_created', 'install_cron_token']);
-
-        $cronToken = env('CRON_TOKEN', '');
 
         return view('install.complete', compact('cronToken'));
     }
@@ -427,6 +439,9 @@ class InstallController extends Controller
         $lines = [];
         $lastGroup = '';
 
+        // Keys whose values must always be quoted (may contain special chars)
+        $alwaysQuote = ['DB_PASSWORD', 'MAIL_PASSWORD', 'CRON_TOKEN'];
+
         foreach ($values as $key => $value) {
             $group = explode('_', $key)[0];
             if ($lastGroup && $group !== $lastGroup) {
@@ -434,9 +449,16 @@ class InstallController extends Controller
             }
             $lastGroup = $group;
 
-            // Quote values with spaces that aren't already quoted
-            if (str_contains($value, ' ') && ! str_starts_with($value, '"')) {
-                $value = '"' . $value . '"';
+            // Always quote passwords and values with spaces/#/= that aren't already quoted
+            $needsQuoting = in_array($key, $alwaysQuote)
+                || str_contains($value, ' ')
+                || str_contains($value, '#')
+                || str_contains($value, '=');
+
+            if ($needsQuoting && ! str_starts_with($value, '"')) {
+                // Escape existing double quotes inside the value
+                $escaped = str_replace('"', '\\"', $value);
+                $value = '"' . $escaped . '"';
             }
 
             $lines[] = "{$key}={$value}";
