@@ -36,6 +36,20 @@ class AppServiceProvider extends ServiceProvider
     public function boot()
     {
         Paginator::useBootstrap();
+
+        // Ensure critical storage directories exist.
+        // On shared hosting (Hostinger) these may be missing after a fresh
+        // deploy, causing silent session write failures → 419 CSRF errors.
+        foreach ([
+            storage_path('framework/sessions'),
+            storage_path('framework/cache'),
+            storage_path('framework/views'),
+            storage_path('logs'),
+        ] as $dir) {
+            if (! is_dir($dir)) {
+                @mkdir($dir, 0775, true);
+            }
+        }
     }
 
     /**
