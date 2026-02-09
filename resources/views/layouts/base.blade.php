@@ -6,7 +6,7 @@
         @yield('head')
         <meta name="csrf-token" content="{{ csrf_token() }}">
         @stack('stylesheets')
-        <link rel="icon" type="image/x-icon" href="{{ mix('favicon.ico') }}" />
+        <link rel="icon" type="image/x-icon" href="{{ asset('favicon.ico') }}" />
     </head>
     <body>
         @yield('body')
