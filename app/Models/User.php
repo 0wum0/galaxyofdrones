@@ -22,6 +22,7 @@ use Laravel\Passport\HasApiTokens;
  * @property string                                                                                                    $password
  * @property string|null                                                                                               $remember_token
  * @property bool                                                                                                      $is_enabled
+ * @property bool                                                                                                      $is_admin
  * @property int                                                                                                       $energy
  * @property int                                                                                                       $solarion
  * @property int                                                                                                       $experience
@@ -140,6 +141,7 @@ class User extends Authenticatable implements MustVerifyEmail
      */
     protected $attributes = [
         'is_enabled' => true,
+        'is_admin' => false,
         'energy' => 1000,
         'solarion' => 0,
         'experience' => 0,
@@ -165,17 +167,16 @@ class User extends Authenticatable implements MustVerifyEmail
     /**
      * {@inheritdoc}
      */
-    protected $dates = [
-        'last_login', 'last_capital_changed', 'last_energy_changed', 'started_at', 'donated_at',
-    ];
-
-    /**
-     * {@inheritdoc}
-     */
     protected $casts = [
         'is_enabled' => 'bool',
+        'is_admin' => 'bool',
         'email_verified_at' => 'datetime',
         'is_notification_enabled' => 'bool',
+        'last_login' => 'datetime',
+        'last_capital_changed' => 'datetime',
+        'last_energy_changed' => 'datetime',
+        'started_at' => 'datetime',
+        'donated_at' => 'datetime',
     ];
 
     /**
@@ -270,6 +271,16 @@ class User extends Authenticatable implements MustVerifyEmail
     public function isStarted()
     {
         return ! empty($this->started_at);
+    }
+
+    /**
+     * Is admin?
+     *
+     * @return bool
+     */
+    public function isAdmin()
+    {
+        return (bool) $this->is_admin;
     }
 
     /**
