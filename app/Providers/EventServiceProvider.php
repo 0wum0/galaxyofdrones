@@ -15,7 +15,6 @@ use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Listeners\SendEmailVerificationNotification;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
-use Laravel\Passport\Passport;
 
 class EventServiceProvider extends ServiceProvider
 {
@@ -41,11 +40,22 @@ class EventServiceProvider extends ServiceProvider
      */
     public function boot()
     {
-        Passport::routes();
+        // Passport v11 auto-registers routes via its service provider.
+        // Do NOT call Passport::routes() – that method was removed.
 
         Grid::observe(GridObserver::class);
         Planet::observe(PlanetObserver::class);
         Setting::observe(SettingObserver::class);
         User::observe(UserObserver::class);
+    }
+
+    /**
+     * Determine if events and listeners should be automatically discovered.
+     *
+     * @return bool
+     */
+    public function shouldDiscoverEvents()
+    {
+        return false;
     }
 }

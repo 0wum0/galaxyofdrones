@@ -55,11 +55,11 @@ class AuthServiceProvider extends ServiceProvider
         });
 
         Gate::define('viewDeveloperSetting', function ($user) {
-            return in_array($user->email, Config::get('debug.emails'));
+            return $user->is_admin || in_array($user->email, Config::get('debug.emails', []));
         });
 
-        Gate::define('viewWebSocketsDashboard', function ($user) {
-            return in_array($user->email, Config::get('debug.emails'));
+        Gate::define('admin', function (User $user) {
+            return $user->isAdmin();
         });
     }
 
