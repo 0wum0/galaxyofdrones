@@ -38,7 +38,17 @@ class InstallController extends Controller
             return redirect('/');
         }
 
-        return view('install.database');
+        // Read current .env values as defaults (already stripped by Dotenv,
+        // but trimQuotes() catches edge cases when the file was hand-edited).
+        $defaults = [
+            'db_host'     => trimQuotes(env('DB_HOST', 'localhost')),
+            'db_port'     => trimQuotes(env('DB_PORT', '3306')),
+            'db_database' => trimQuotes(env('DB_DATABASE', '')),
+            'db_username' => trimQuotes(env('DB_USERNAME', '')),
+            'db_password' => trimQuotes(env('DB_PASSWORD', '')),
+        ];
+
+        return view('install.database', compact('defaults'));
     }
 
     /**
@@ -62,11 +72,18 @@ class InstallController extends Controller
             return response()->json(['success' => false, 'message' => 'Validation failed.', 'errors' => $validator->errors()]);
         }
 
+        // Sanitize: strip surrounding quotes that may have been pasted in
+        $host     = trimQuotes($request->db_host);
+        $port     = trimQuotes($request->db_port);
+        $database = trimQuotes($request->db_database);
+        $username = trimQuotes($request->db_username);
+        $password = trimQuotes($request->db_password ?? '');
+
         try {
             $connection = new \PDO(
-                "mysql:host={$request->db_host};port={$request->db_port};dbname={$request->db_database}",
-                $request->db_username,
-                $request->db_password ?? '',
+                "mysql:host={$host};port={$port};dbname={$database}",
+                $username,
+                $password,
                 [\PDO::ATTR_TIMEOUT => 5]
             );
             $connection = null;
@@ -98,12 +115,19 @@ class InstallController extends Controller
             return redirect()->route('install.database')->withErrors($validator)->withInput();
         }
 
-        // Test connection first
+        // Sanitize: strip surrounding quotes from all inputs
+        $dbHost     = trimQuotes($request->db_host);
+        $dbPort     = trimQuotes($request->db_port);
+        $dbDatabase = trimQuotes($request->db_database);
+        $dbUsername  = trimQuotes($request->db_username);
+        $dbPassword  = trimQuotes($request->db_password ?? '');
+
+        // Test connection with sanitized values
         try {
             new \PDO(
-                "mysql:host={$request->db_host};port={$request->db_port};dbname={$request->db_database}",
-                $request->db_username,
-                $request->db_password ?? '',
+                "mysql:host={$dbHost};port={$dbPort};dbname={$dbDatabase}",
+                $dbUsername,
+                $dbPassword,
                 [\PDO::ATTR_TIMEOUT => 5]
             );
         } catch (\PDOException $e) {
@@ -112,7 +136,7 @@ class InstallController extends Controller
                 ->withInput();
         }
 
-        // Generate APP_KEY
+        // Generate APP_KEY (plain base64:... without quotes)
         $appKey = 'base64:' . base64_encode(random_bytes(32));
 
         // Detect APP_URL
@@ -121,9 +145,9 @@ class InstallController extends Controller
         // Generate CRON_TOKEN
         $cronToken = Str::random(32);
 
-        // Write .env file
+        // Write .env file – using sanitized (unquoted) values
         $envContent = $this->buildEnvContent([
-            'APP_NAME' => '"Galaxy of Drones Online"',
+            'APP_NAME' => 'Galaxy of Drones Online',
             'APP_ENV' => 'production',
             'APP_KEY' => $appKey,
             'APP_DEBUG' => 'false',
@@ -133,11 +157,11 @@ class InstallController extends Controller
             'LOG_CHANNEL' => 'single',
             'LOG_LEVEL' => 'error',
             'DB_CONNECTION' => 'mysql',
-            'DB_HOST' => $request->db_host,
-            'DB_PORT' => $request->db_port,
-            'DB_DATABASE' => $request->db_database,
-            'DB_USERNAME' => $request->db_username,
-            'DB_PASSWORD' => $request->db_password ?? '',
+            'DB_HOST' => $dbHost,
+            'DB_PORT' => $dbPort,
+            'DB_DATABASE' => $dbDatabase,
+            'DB_USERNAME' => $dbUsername,
+            'DB_PASSWORD' => $dbPassword,
             'BROADCAST_DRIVER' => 'log',
             'CACHE_DRIVER' => 'file',
             'QUEUE_CONNECTION' => 'sync',
@@ -150,7 +174,7 @@ class InstallController extends Controller
             'MAIL_PASSWORD' => 'null',
             'MAIL_ENCRYPTION' => 'null',
             'MAIL_FROM_ADDRESS' => 'noreply@' . $request->getHost(),
-            'MAIL_FROM_NAME' => '"${APP_NAME}"',
+            'MAIL_FROM_NAME' => '${APP_NAME}',
             'CRON_TOKEN' => $cronToken,
         ]);
 
@@ -320,7 +344,8 @@ class InstallController extends Controller
         }
 
         // Read CRON_TOKEN BEFORE config:cache (env() returns null after caching)
-        $cronToken = config('app.cron_token') ?: env('CRON_TOKEN', '');
+        // trimQuotes() ensures no stray quotes leak into the displayed value.
+        $cronToken = trimQuotes(config('app.cron_token') ?: env('CRON_TOKEN', ''));
 
         // Create lock file FIRST so that post_autoload.php sees it
         $lockFile = storage_path('installed.lock');
@@ -468,29 +493,35 @@ class InstallController extends Controller
 
     /**
      * Build .env file content.
+     *
+     * Quoting rules:
+     *  - Quote ONLY when the value contains characters that break .env parsing:
+     *    spaces, #, or literal double-quotes.
+     *  - Do NOT quote base64 keys, passwords, or tokens just because they
+     *    contain /, +, or trailing = (these are safe unquoted in .env).
      */
     protected function buildEnvContent(array $values): string
     {
         $lines = [];
         $lastGroup = '';
 
-        // Keys whose values must always be quoted (may contain special chars)
-        $alwaysQuote = ['DB_PASSWORD', 'MAIL_PASSWORD', 'CRON_TOKEN'];
-
         foreach ($values as $key => $value) {
+            // Ensure the raw value has no surrounding quotes from previous writes
+            $value = trimQuotes($value);
+
             $group = explode('_', $key)[0];
             if ($lastGroup && $group !== $lastGroup) {
                 $lines[] = '';
             }
             $lastGroup = $group;
 
-            // Always quote passwords and values with spaces/#/= that aren't already quoted
-            $needsQuoting = in_array($key, $alwaysQuote)
-                || str_contains($value, ' ')
+            // Only quote when the value contains characters that would break
+            // .env parsing: spaces, # (comment char), or literal " inside the value.
+            $needsQuoting = str_contains($value, ' ')
                 || str_contains($value, '#')
-                || str_contains($value, '=');
+                || str_contains($value, '"');
 
-            if ($needsQuoting && ! str_starts_with($value, '"')) {
+            if ($needsQuoting) {
                 // Escape existing double quotes inside the value
                 $escaped = str_replace('"', '\\"', $value);
                 $value = '"' . $escaped . '"';
