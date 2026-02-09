@@ -17,6 +17,33 @@ if (! function_exists('flash')) {
     }
 }
 
+if (! function_exists('trimQuotes')) {
+    /**
+     * Remove surrounding quotes from a string value.
+     *
+     * Only strips the quotes when both the first and last character
+     * are the same quote character (" or ').
+     *
+     * @param  mixed  $value
+     * @return string
+     */
+    function trimQuotes($value): string
+    {
+        if (! is_string($value) || strlen($value) < 2) {
+            return (string) ($value ?? '');
+        }
+
+        $first = $value[0];
+        $last  = $value[strlen($value) - 1];
+
+        if (($first === '"' && $last === '"') || ($first === "'" && $last === "'")) {
+            return substr($value, 1, -1);
+        }
+
+        return $value;
+    }
+}
+
 if (! function_exists('setting')) {
     /**
      * Get the setting.
