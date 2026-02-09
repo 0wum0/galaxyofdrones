@@ -411,13 +411,21 @@ Script @php artisan package:discover --ansi returned with error code 1
 ```
 
 **Loesung:** In `composer.json` wurde der direkte Artisan-Aufruf durch ein Guard-Script
-ersetzt (`scripts/post_autoload.php`). Das Script prueft zwei Bedingungen, bevor es
+ersetzt (`scripts/post_autoload.php`). Das Script prueft folgende Bedingung, bevor es
 `package:discover` ausfuehrt:
 
-1. **`.env` existiert** – wird vom Web-Installer geschrieben
-2. **`storage/installed.lock` existiert** – wird am Ende der Installation angelegt
+1. **`.env` existiert** – wird vom Web-Installer oder manuell erstellt
 
-Wenn eine der Bedingungen nicht erfuellt ist, beendet sich das Script sauber mit Exit-Code 0.
+Zusaetzlich ist der gesamte Script-Body in einen `try/catch(\Throwable)` Block gewrapped,
+sodass selbst unerwartete PHP-Fehler niemals als Exit-Code 255 an Composer weitergereicht
+werden. Das Script beendet sich **immer** mit Exit-Code 0.
+
+> **Wichtig:** Das Script haengt **nicht** von `storage/installed.lock` oder anderem
+> untracked State ab. `installed.lock` wird vom Web-Installer nach erfolgreicher
+> Installation erstellt und darf **niemals** ins Git-Repository committed werden.
+> Das Repo muss sauber bleiben – `installed.lock` gehoert in `.gitignore`.
+
+Wenn `.env` nicht vorhanden ist, beendet sich das Script sauber mit Exit-Code 0.
 Dadurch laeuft `composer install` auf einem frischen Server fehlerfrei durch.
 
 ### Was nach der Installation passiert
@@ -456,6 +464,24 @@ php artisan package:discover --ansi
 php artisan config:cache
 php artisan view:cache
 ```
+
+---
+
+## Hinweis: installed.lock und sauberes Repository
+
+> **Keep repo clean; `installed.lock` must be created post-install, never committed.**
+
+Die Datei `storage/installed.lock` wird vom Web-Installer nach erfolgreicher Installation
+angelegt. Sie signalisiert der Anwendung, dass die Ersteinrichtung abgeschlossen ist.
+
+**Wichtige Regeln:**
+- `installed.lock` wird **nach** `composer install` durch den Web-Installer erstellt
+- Die Datei darf **niemals** ins Git-Repository committed werden
+- Sie ist bereits in `.gitignore` eingetragen
+- Das `post_autoload.php` Script haengt **nicht** von `installed.lock` ab –
+  es prueft ausschliesslich die Existenz von `.env`
+- Beim Erstdeploy (clean checkout ohne `.env`) laeuft `composer install` fehlerfrei
+  durch, weil das Script sauber mit Exit-Code 0 beendet
 
 ---
 
