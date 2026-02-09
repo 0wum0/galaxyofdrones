@@ -8,14 +8,17 @@
     </p>
 
     @if ($errors->any())
-        <div class="alert alert-danger">
-            @foreach ($errors->all() as $error)
-                {{ $error }}<br>
-            @endforeach
+        <div class="alert alert-danger" style="background:#fdecea;border:1px solid #f5c6cb;color:#721c24;padding:12px 16px;border-radius:6px;margin-bottom:16px;">
+            <strong>Error:</strong>
+            <ul style="margin:6px 0 0 18px;padding:0;">
+                @foreach ($errors->all() as $error)
+                    <li>{{ $error }}</li>
+                @endforeach
+            </ul>
         </div>
     @endif
 
-    <form method="POST" action="{{ route('install.environment') }}" id="dbForm">
+    <form method="POST" action="{{ route('install.test_database') }}" id="dbForm">
         @csrf
 
         <div class="form-group">
