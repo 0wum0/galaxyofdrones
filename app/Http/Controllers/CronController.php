@@ -16,7 +16,7 @@ class CronController extends Controller
      */
     public function tick(Request $request)
     {
-        $configToken = config('app.cron_token', env('CRON_TOKEN'));
+        $configToken = config('app.cron_token');
 
         if (empty($configToken)) {
             return response()->json([
