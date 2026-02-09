@@ -257,5 +257,50 @@ chmod -R 775 storage bootstrap/cache
 - `.env` ist durch `.htaccess` geschuetzt und hat Berechtigung 600
 - Der Web-Installer sperrt sich nach erfolgreicher Installation
 - `APP_DEBUG=false` ist in Production gesetzt
-- Alle sensiblen Dateien sind durch .htaccess blockiert
+- Alle sensiblen Dateien/Verzeichnisse sind durch .htaccess blockiert
 - Aendere regelmaessig das `CRON_TOKEN` in der .env
+- Security Headers aktiv: HSTS, X-Frame-Options, X-Content-Type-Options
+- Gzip-Komprimierung und Browser-Caching fuer Assets aktiviert
+
+### .htaccess Sicherheitstest
+
+Nach dem Deployment sollten folgende URLs **403 Forbidden** oder **404** zurueckgeben:
+
+```
+# Diese URLs MUESSEN blockiert sein (403/404):
+https://yourdomain.com/.env                    # 403 - Umgebungsvariablen
+https://yourdomain.com/.git/config             # 403 - Git Repository
+https://yourdomain.com/.git/HEAD               # 403 - Git Repository
+https://yourdomain.com/vendor/autoload.php     # 403 - Composer Vendor
+https://yourdomain.com/storage/logs/laravel.log # 403 - Logdateien
+https://yourdomain.com/bootstrap/app.php       # 403 - Bootstrap
+https://yourdomain.com/config/app.php          # 403 - Konfiguration
+https://yourdomain.com/config/database.php     # 403 - DB-Konfiguration
+https://yourdomain.com/database/               # 403 - Migrationen
+https://yourdomain.com/routes/web.php          # 403 - Routen
+https://yourdomain.com/resources/              # 403 - Resources
+https://yourdomain.com/app/Models/User.php     # 403 - Anwendungscode
+https://yourdomain.com/composer.json           # 403 - Composer Config
+https://yourdomain.com/composer.lock           # 403 - Composer Lock
+https://yourdomain.com/artisan                 # 403 - Artisan CLI
+https://yourdomain.com/.env.example            # 403 - Env Beispiel
+https://yourdomain.com/phpunit.xml             # 403 - PHPUnit Config
+
+# Diese URLs MUESSEN erreichbar sein (200):
+https://yourdomain.com/                        # 200 - Startseite
+https://yourdomain.com/login                   # 200 - Login
+https://yourdomain.com/register                # 200 - Registrierung
+https://yourdomain.com/robots.txt              # 200 - Robots
+https://yourdomain.com/cron/tick?token=X       # 403 - Cron (falsches Token)
+```
+
+Test-Befehl (per SSH oder lokal):
+```bash
+# Schnelltest aller blockierten Pfade:
+for path in .env .git/config vendor/autoload.php storage/logs/laravel.log \
+  bootstrap/app.php config/app.php database/ routes/web.php \
+  resources/ app/Models/User.php composer.json artisan; do
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://yourdomain.com/$path)
+  echo "$STATUS - /$path"
+done
+```

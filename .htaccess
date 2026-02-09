@@ -1,16 +1,32 @@
-# Root .htaccess - Protects non-public files if DocumentRoot is not set to /public
-# This file is a safety net. Ideally, DocumentRoot should point to /public.
+# Root .htaccess - Safety net when DocumentRoot is the project root (not /public).
+# Ideally, DocumentRoot should point to /public. This file handles the fallback.
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
-    # Redirect everything to the public directory
+    # Block access to sensitive directories (return 403)
+    RewriteRule ^vendor(/.*)?$ - [F,L]
+    RewriteRule ^storage(/.*)?$ - [F,L]
+    RewriteRule ^bootstrap(/.*)?$ - [F,L]
+    RewriteRule ^config(/.*)?$ - [F,L]
+    RewriteRule ^database(/.*)?$ - [F,L]
+    RewriteRule ^routes(/.*)?$ - [F,L]
+    RewriteRule ^resources(/.*)?$ - [F,L]
+    RewriteRule ^app(/.*)?$ - [F,L]
+    RewriteRule ^tests(/.*)?$ - [F,L]
+    RewriteRule ^scripts(/.*)?$ - [F,L]
+
+    # Block hidden files and directories (.env, .git, .github, etc.)
+    RewriteRule (^\.|/\.) - [F,L]
+
+    # Redirect everything else to the public directory
     RewriteCond %{REQUEST_URI} !^/public/
     RewriteRule ^(.*)$ /public/$1 [L]
 </IfModule>
 
-# Deny access to sensitive files in root
-<FilesMatch "\.(env|log|yml|yaml|json|lock|xml|ini|conf|sh|sql|bak|md|php)$">
+# Block access to sensitive file types in the project root
+# Note: .php is NOT blocked here because public/index.php must remain accessible
+<FilesMatch "\.(env|log|yml|yaml|lock|xml|ini|conf|sh|sql|bak|swp|dist|md)$">
     <IfModule mod_authz_core.c>
         Require all denied
     </IfModule>
@@ -20,5 +36,16 @@
     </IfModule>
 </FilesMatch>
 
-# Deny access to directories
+# Block specific sensitive files by name
+<FilesMatch "^(composer\.json|composer\.lock|package\.json|phpunit\.xml|artisan|server\.php|\.php_cs|\.styleci\.yml|\.eslintrc\.js)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# Disable directory browsing
 Options -Indexes
