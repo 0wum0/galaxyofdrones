@@ -252,6 +252,68 @@ chmod -R 775 storage bootstrap/cache
 
 ---
 
+## Deployment-sicheres package:discover
+
+### Warum package:discover beim Erstdeploy geskippt wird
+
+Beim ersten `composer install` auf Hostinger Shared Hosting existiert weder eine `.env`-Datei
+noch ein `APP_KEY`. Diese werden erst durch den Web-Installer (`/install`) erzeugt. Laravels
+`package:discover`-Befehl bootet jedoch das gesamte Framework – ohne gueltige `.env` schlaegt
+dieser Boot fehl und Composer bricht mit dem Fehler ab:
+
+```
+Script @php artisan package:discover --ansi returned with error code 1
+```
+
+**Loesung:** In `composer.json` wurde der direkte Artisan-Aufruf durch ein Guard-Script
+ersetzt (`scripts/post_autoload.php`). Das Script prueft zwei Bedingungen, bevor es
+`package:discover` ausfuehrt:
+
+1. **`.env` existiert** – wird vom Web-Installer geschrieben
+2. **`storage/installed.lock` existiert** – wird am Ende der Installation angelegt
+
+Wenn eine der Bedingungen nicht erfuellt ist, beendet sich das Script sauber mit Exit-Code 0.
+Dadurch laeuft `composer install` auf einem frischen Server fehlerfrei durch.
+
+### Was nach der Installation passiert
+
+Nachdem der Web-Installer alle Schritte abgeschlossen hat (Datenbank, Migrationen, Admin-User),
+fuehrt er automatisch folgende Artisan-Befehle aus:
+
+1. `config:clear` – entfernt veraltete Config-Caches
+2. `route:clear` – entfernt veraltete Route-Caches
+3. `view:clear` – entfernt veraltete View-Caches
+4. `package:discover --ansi` – erkennt und registriert alle Laravel-Pakete
+5. `config:cache` – erstellt einen frischen Config-Cache
+6. `view:cache` – kompiliert alle Blade-Views vor
+
+Damit ist die Anwendung nach Abschluss des Installers sofort betriebsbereit.
+
+### Wie man manuell package:discover ausfuehrt
+
+Falls noetig (z.B. nach einem manuellen Paket-Update), kann `package:discover` jederzeit
+per SSH ausgefuehrt werden:
+
+```bash
+cd ~/domains/yourdomain.com   # Projektverzeichnis
+php artisan package:discover --ansi
+```
+
+**Voraussetzung:** `.env` muss vorhanden sein und einen gueltigen `APP_KEY` enthalten.
+
+Bei Problemen hilft folgender Reset:
+
+```bash
+php artisan config:clear
+php artisan route:clear
+php artisan view:clear
+php artisan package:discover --ansi
+php artisan config:cache
+php artisan view:cache
+```
+
+---
+
 ## Sicherheitshinweise
 
 - `.env` ist durch `.htaccess` geschuetzt und hat Berechtigung 600
