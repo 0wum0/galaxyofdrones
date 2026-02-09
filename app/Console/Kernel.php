@@ -24,7 +24,9 @@ class Kernel extends ConsoleKernel
         parent::bootstrap();
 
         if ($this->app->environment() != 'production') {
-            $this->app->register(\Barryvdh\LaravelIdeHelper\IdeHelperServiceProvider::class);
+            if (class_exists(\Barryvdh\LaravelIdeHelper\IdeHelperServiceProvider::class)) {
+                $this->app->register(\Barryvdh\LaravelIdeHelper\IdeHelperServiceProvider::class);
+            }
         }
     }
 
@@ -35,11 +37,15 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule)
     {
+        // Game tick - processes all pending constructions, upgrades, trainings, movements
+        $schedule->command('game:tick')->everyMinute();
+
+        // Generate new expeditions and missions every 6 hours
         $schedule->command('expedition:generate')->cron('0 */6 * * *');
         $schedule->command('mission:generate')->cron('0 */6 * * *');
+
+        // Update rankings hourly
         $schedule->command('rank:update')->hourly();
-        $schedule->command('horizon:snapshot')->everyFiveMinutes();
-        $schedule->command('websockets:clean')->daily();
     }
 
     /**
