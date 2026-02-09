@@ -8,6 +8,16 @@ use Illuminate\Http\Request;
 class LogController extends Controller
 {
     /**
+     * Maximum lines that can be requested.
+     */
+    const MAX_LINES = 1000;
+
+    /**
+     * Maximum bytes to read from the log file (safety limit: 2 MB).
+     */
+    const MAX_READ_BYTES = 2 * 1024 * 1024;
+
+    /**
      * Show application logs.
      */
     public function index(Request $request)
@@ -15,12 +25,11 @@ class LogController extends Controller
         $logFile = storage_path('logs/laravel.log');
         $logContent = '';
         $logSize = 0;
-        $lines = (int) $request->get('lines', 100);
+        $lines = min((int) $request->get('lines', 100), self::MAX_LINES);
+        $lines = max($lines, 1);
 
         if (file_exists($logFile)) {
             $logSize = filesize($logFile);
-
-            // Read last N lines efficiently
             $logContent = $this->tailFile($logFile, $lines);
         }
 
@@ -30,7 +39,10 @@ class LogController extends Controller
     }
 
     /**
-     * Read last N lines from a file.
+     * Read last N lines from a file using buffered backward reading.
+     *
+     * Uses a buffer-based approach instead of char-by-char for performance.
+     * Caps total bytes read to MAX_READ_BYTES to prevent memory exhaustion.
      */
     protected function tailFile(string $path, int $lines = 100): string
     {
@@ -39,34 +51,39 @@ class LogController extends Controller
             return 'Unable to read log file.';
         }
 
-        // Seek to end and read backwards
-        $buffer = '';
-        $lineCount = 0;
-        $pos = -1;
-
         fseek($handle, 0, SEEK_END);
         $fileSize = ftell($handle);
 
         if ($fileSize === 0) {
             fclose($handle);
+
             return 'Log file is empty.';
         }
 
-        while ($lineCount < $lines && abs($pos) <= $fileSize) {
-            fseek($handle, $pos, SEEK_END);
-            $char = fgetc($handle);
-            $buffer = $char . $buffer;
+        // Cap the read size
+        $maxRead = min($fileSize, self::MAX_READ_BYTES);
 
-            if ($char === "\n") {
-                $lineCount++;
-            }
-
-            $pos--;
-        }
-
+        // Read from the end in a single buffer
+        $offset = max(0, $fileSize - $maxRead);
+        fseek($handle, $offset);
+        $buffer = fread($handle, $maxRead);
         fclose($handle);
 
-        return trim($buffer);
+        if ($buffer === false) {
+            return 'Unable to read log file.';
+        }
+
+        // Split into lines and take the last N
+        $allLines = explode("\n", $buffer);
+
+        // Remove trailing empty line from explode
+        if (end($allLines) === '') {
+            array_pop($allLines);
+        }
+
+        $tail = array_slice($allLines, -$lines);
+
+        return implode("\n", $tail);
     }
 
     /**
@@ -80,6 +97,7 @@ class LogController extends Controller
 
         $units = ['B', 'KB', 'MB', 'GB'];
         $i = (int) floor(log($bytes, 1024));
+        $i = min($i, count($units) - 1);
 
         return round($bytes / pow(1024, $i), 2) . ' ' . $units[$i];
     }

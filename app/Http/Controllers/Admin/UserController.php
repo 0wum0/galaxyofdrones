@@ -39,9 +39,24 @@ class UserController extends Controller
 
     /**
      * Toggle admin status.
+     *
+     * Prevents: self-lockout and removing the last admin.
      */
-    public function toggleAdmin(User $user)
+    public function toggleAdmin(Request $request, User $user)
     {
+        // Prevent removing your own admin status
+        if ($request->user()->id === $user->id && $user->is_admin) {
+            return redirect()->back()->with('error', 'You cannot remove your own admin status.');
+        }
+
+        // Prevent removing the last admin
+        if ($user->is_admin) {
+            $adminCount = User::where('is_admin', true)->where('is_enabled', true)->count();
+            if ($adminCount <= 1) {
+                return redirect()->back()->with('error', 'Cannot remove admin status: at least one active admin must exist.');
+            }
+        }
+
         $user->is_admin = ! $user->is_admin;
         $user->save();
 
@@ -50,9 +65,24 @@ class UserController extends Controller
 
     /**
      * Toggle enabled status.
+     *
+     * Prevents: self-disable and disabling the last admin.
      */
-    public function toggleEnabled(User $user)
+    public function toggleEnabled(Request $request, User $user)
     {
+        // Prevent disabling yourself
+        if ($request->user()->id === $user->id && $user->is_enabled) {
+            return redirect()->back()->with('error', 'You cannot disable your own account.');
+        }
+
+        // Prevent disabling the last active admin
+        if ($user->is_admin && $user->is_enabled) {
+            $activeAdminCount = User::where('is_admin', true)->where('is_enabled', true)->count();
+            if ($activeAdminCount <= 1) {
+                return redirect()->back()->with('error', 'Cannot disable user: they are the last active admin.');
+            }
+        }
+
         $user->is_enabled = ! $user->is_enabled;
         $user->save();
 
