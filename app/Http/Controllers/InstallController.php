@@ -322,7 +322,7 @@ class InstallController extends Controller
         // Read CRON_TOKEN BEFORE config:cache (env() returns null after caching)
         $cronToken = config('app.cron_token') ?: env('CRON_TOKEN', '');
 
-        // Create lock file
+        // Create lock file FIRST so that post_autoload.php sees it
         $lockFile = storage_path('installed.lock');
         file_put_contents($lockFile, json_encode([
             'installed_at' => now()->toIso8601String(),
@@ -330,13 +330,48 @@ class InstallController extends Controller
             'laravel_version' => app()->version(),
         ]));
 
-        // Cache config and views for performance
+        // ---------------------------------------------------------------
+        // Post-install: clear stale caches and run package:discover
+        // During the initial "composer install" these were skipped because
+        // .env / installed.lock did not exist yet. Now we catch up.
+        // ---------------------------------------------------------------
+        $postInstallErrors = [];
+
+        try {
+            Artisan::call('config:clear');
+        } catch (\Exception $e) {
+            $postInstallErrors[] = 'config:clear – ' . $this->sanitizeError($e->getMessage());
+        }
+
+        try {
+            Artisan::call('route:clear');
+        } catch (\Exception $e) {
+            $postInstallErrors[] = 'route:clear – ' . $this->sanitizeError($e->getMessage());
+        }
+
+        try {
+            Artisan::call('view:clear');
+        } catch (\Exception $e) {
+            $postInstallErrors[] = 'view:clear – ' . $this->sanitizeError($e->getMessage());
+        }
+
+        try {
+            Artisan::call('package:discover', ['--ansi' => true]);
+        } catch (\Exception $e) {
+            $postInstallErrors[] = 'package:discover – ' . $this->sanitizeError($e->getMessage());
+        }
+
+        // Rebuild caches for performance
         // Note: route:cache is skipped because Closure-based routes (console.php) are not cacheable
         try {
             Artisan::call('config:cache');
             Artisan::call('view:cache');
         } catch (\Exception $e) {
-            // Non-critical, continue
+            $postInstallErrors[] = 'cache rebuild – ' . $this->sanitizeError($e->getMessage());
+        }
+
+        if (! empty($postInstallErrors)) {
+            \Illuminate\Support\Facades\Log::warning('Post-install commands had issues', $postInstallErrors);
         }
 
         // Clear install session data
