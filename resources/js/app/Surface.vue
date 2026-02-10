@@ -87,30 +87,69 @@ export default {
         this.$viewport = $(this.$el).parent();
 
         EventBus.$on('planet-updated', this.planetUpdated);
+
+        // ---------------------------------------------------------------
+        // Handle late-mount race condition:
+        // When navigating from /starmap back to /, the Sidebar's $route
+        // watcher fires fetchData() which is async. If planet data was
+        // already cached (from a previous fetch), use it immediately so
+        // Pixi initialises without waiting for the next API response.
+        // The Sidebar will still re-fetch and emit planet-updated; at
+        // that point updatePixi() will refresh the sprites.
+        // ---------------------------------------------------------------
+        if (!this.stage && EventBus._lastPlanetData) {
+            this.$nextTick(() => {
+                if (!this.stage) {
+                    this.planetUpdated(EventBus._lastPlanetData);
+                }
+            });
+        }
     },
 
     beforeDestroy() {
         EventBus.$off('planet-updated', this.planetUpdated);
 
-        this.destoryPixi();
+        this.destroyPixi();
     },
 
     methods: {
         planetUpdated(planet) {
             this.planet = planet;
 
-            if (!this.stage) {
+            if (!this.stage && !this._loading) {
                 this.initPixi();
-            } else {
+            } else if (this.stage) {
                 this.updatePixi();
             }
+            // If _loading is true, initPixi is still running. The latest
+            // planet data is stored in this.planet, so when setup() fires
+            // it will use the current data automatically.
         },
 
         initPixi() {
+            this._loading = true;
+
             this.loader = new Loader();
+
+            // Error handler: log and continue so the load callback still fires.
+            this.loader.onError.add((error, _loader, resource) => {
+                console.error('[Surface] Failed to load:', resource.url, error);
+            });
+
             this.loader.add(this.backgroundName(), this.background());
             this.loader.add('grid', this.gridTextureAtlas);
             this.loader.load(() => {
+                this._loading = false;
+
+                // Verify that critical resources loaded successfully.
+                const bgResource = this.loader.resources[this.backgroundName()];
+                const gridResource = this.loader.resources.grid;
+
+                if (!bgResource || bgResource.error || !gridResource || gridResource.error) {
+                    console.error('[Surface] Critical texture(s) failed to load. Aborting setup.');
+                    return;
+                }
+
                 this.setup();
                 this.align();
                 this.animate();
@@ -141,27 +180,39 @@ export default {
         },
 
         updatePixi() {
+            // Guard: don't modify the loader while it's still loading.
+            if (this._loading) {
+                return;
+            }
+
             const backgroundName = this.backgroundName();
 
             if (!this.loader.resources[backgroundName]) {
+                this._loading = true;
                 this.loader.add(backgroundName, this.background());
-                this.loader.load(this.setup);
+                this.loader.load(() => {
+                    this._loading = false;
+                    this.setup();
+                });
             } else {
                 this.setup();
             }
         },
 
-        destoryPixi() {
+        destroyPixi() {
             if (!this.stage) {
                 return;
             }
 
+            this._loading = false;
             this.clearIntervals();
 
             cancelAnimationFrame(this.animationFrame);
 
-            this.renderer.destroy();
-            this.renderer = undefined;
+            if (this.renderer) {
+                this.renderer.destroy();
+                this.renderer = undefined;
+            }
 
             this.container.destroy(true, true, true);
             this.container = undefined;
@@ -169,10 +220,14 @@ export default {
             this.stage.destroy(true, true, true);
             this.stage = undefined;
 
-            this.loader.destroy();
-            this.loader = undefined;
+            if (this.loader) {
+                this.loader.destroy();
+                this.loader = undefined;
+            }
 
             utils.destroyTextureCache();
+
+            window.removeEventListener('resize', this.resize);
         },
 
         setup() {
@@ -272,11 +327,11 @@ export default {
         },
 
         rendererWidth() {
-            return this.$viewport.width();
+            return Math.max(1, this.$viewport.width());
         },
 
         rendererHeight() {
-            return this.$viewport.height();
+            return Math.max(1, this.$viewport.height());
         },
 
         centerX() {

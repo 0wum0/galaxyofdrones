@@ -58,6 +58,48 @@
             width: 128px;
         }
     }
+
+    // ---------------------------------------------------------------
+    // Planet & Star textures on the starmap via sprite-item-sm.png
+    // ---------------------------------------------------------------
+    // The sprite sheet is 240×336 px  (5 cols × 7 rows of 48×48 icons).
+    // Using percentage-based background-position + background-size so
+    // the sprites scale correctly for any marker size Leaflet assigns.
+    //
+    // Formula for percentages (CSS spec):
+    //   x% = col / (totalCols - 1) * 100
+    //   y% = row / (totalRows - 1) * 100
+    //
+    // Planet sprites occupy rows 5-6 (0-indexed), star is at row 5 col 0.
+    // ---------------------------------------------------------------
+    .leaflet-planet,
+    .leaflet-star {
+        background-image: url('../images/sprite-item-sm.png?v=#{$cache-buster}');
+        background-repeat: no-repeat;
+        // 5 columns → 500%, 7 rows → 700%
+        background-size: 500% 700%;
+    }
+
+    // Star: col 0, row 5  →  0%  83.333%
+    .leaflet-star {
+        background-position: 0% 83.333%;
+    }
+
+    // Planet resource types 1–7:
+    //   planet-1: col 1, row 5  →  25%     83.333%
+    //   planet-2: col 2, row 5  →  50%     83.333%
+    //   planet-3: col 3, row 5  →  75%     83.333%
+    //   planet-4: col 4, row 5  →  100%    83.333%
+    //   planet-5: col 0, row 6  →  0%      100%
+    //   planet-6: col 1, row 6  →  25%     100%
+    //   planet-7: col 2, row 6  →  50%     100%
+    .leaflet-planet-1 { background-position: 25% 83.333%; }
+    .leaflet-planet-2 { background-position: 50% 83.333%; }
+    .leaflet-planet-3 { background-position: 75% 83.333%; }
+    .leaflet-planet-4 { background-position: 100% 83.333%; }
+    .leaflet-planet-5 { background-position: 0% 100%; }
+    .leaflet-planet-6 { background-position: 25% 100%; }
+    .leaflet-planet-7 { background-position: 50% 100%; }
     .leaflet-icon-movement {
         border: none;
         border-radius: 50%;
