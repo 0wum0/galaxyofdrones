@@ -183,6 +183,14 @@ export default {
             this.map.remove();
             this.map = undefined;
             window.__starmap = undefined;
+
+            // Forcefully clear any lingering Leaflet DOM inside this
+            // component's root element. Leaflet's remove() should handle
+            // this, but on some mobile browsers (Android Chrome) stale
+            // tile layers or panes can persist and overlay the surface.
+            if (this.$el) {
+                this.$el.innerHTML = '';
+            }
         },
 
         geoJson() {

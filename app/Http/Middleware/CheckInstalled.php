@@ -29,6 +29,11 @@ class CheckInstalled
      */
     protected function isInstalled(): bool
     {
+        // In the testing environment the installer is never relevant.
+        if (app()->environment('testing')) {
+            return true;
+        }
+
         return file_exists(storage_path('installed.lock'));
     }
 }

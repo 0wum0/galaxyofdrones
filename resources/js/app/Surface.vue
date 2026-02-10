@@ -88,13 +88,20 @@ export default {
 
         EventBus.$on('planet-updated', this.planetUpdated);
 
-        // If planet data was already fetched (cached by Sidebar), use it
-        // immediately.  No timing tricks — initPixi is safe to call as
-        // soon as the component is mounted because rendererWidth/Height
-        // fall back to the prop dimensions when the viewport reports 0.
-        if (EventBus._lastPlanetData) {
-            this.planetUpdated(EventBus._lastPlanetData);
-        }
+        // Defer initial planet data handling to nextTick + rAF so the DOM
+        // has fully settled after the route transition. This is critical
+        // when navigating from Starmap → Surface: the old Leaflet container
+        // must be removed and the canvas must have real layout dimensions
+        // before PixiJS creates its renderer.
+        this.$nextTick(() => {
+            requestAnimationFrame(() => {
+                if (this._isBeingDestroyed || this._isDestroyed) return;
+
+                if (EventBus._lastPlanetData && this.isValidPlanetData(EventBus._lastPlanetData)) {
+                    this.planetUpdated(EventBus._lastPlanetData);
+                }
+            });
+        });
     },
 
     beforeDestroy() {
@@ -104,7 +111,26 @@ export default {
     },
 
     methods: {
+        /**
+         * Validate that planet data has the minimum fields needed to
+         * render the surface.  Guards against malformed API responses
+         * (e.g. HTML redirect pages) and race conditions where the data
+         * object is still the initial stub.
+         */
+        isValidPlanetData(data) {
+            return data
+                && typeof data === 'object'
+                && typeof data.resource_id === 'number'
+                && Array.isArray(data.grids)
+                && data.grids.length > 0;
+        },
+
         planetUpdated(planet) {
+            if (!this.isValidPlanetData(planet)) {
+                // Data is not ready yet — wait for the next event.
+                return;
+            }
+
             this.planet = planet;
 
             if (!this.stage && !this._loading) {

@@ -86,4 +86,42 @@ class SurfaceRouteTest extends TestCase
         $this->get('/')
             ->assertRedirect();
     }
+
+    /**
+     * Regression: the planet API must return non-empty grids so the
+     * Surface PixiJS component can render grid tiles.  This is the
+     * single most common cause of "blank surface after Jump to surface."
+     */
+    public function testPlanetApiReturnsGridsForSurface()
+    {
+        $user = $this->createStartedUser();
+        $this->actingAs($user);
+
+        $response = $this->getJson('/api/planet')
+            ->assertStatus(200)
+            ->assertJsonStructure([
+                'id',
+                'resource_id',
+                'grids',
+            ]);
+
+        $data = $response->json();
+
+        // resource_id must be a positive integer (needed for texture URL).
+        $this->assertIsInt($data['resource_id']);
+        $this->assertGreaterThan(0, $data['resource_id']);
+
+        // grids must be a non-empty array of grid objects.
+        $this->assertIsArray($data['grids']);
+        $this->assertGreaterThan(0, count($data['grids']), 'Planet must have grid slots for surface rendering.');
+
+        // Each grid must have the fields the Surface component requires.
+        foreach ($data['grids'] as $grid) {
+            $this->assertArrayHasKey('id', $grid);
+            $this->assertArrayHasKey('x', $grid);
+            $this->assertArrayHasKey('y', $grid);
+            $this->assertArrayHasKey('type', $grid);
+            $this->assertArrayHasKey('building_id', $grid);
+        }
+    }
 }

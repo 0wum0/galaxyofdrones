@@ -34,13 +34,23 @@ class PlanetController extends Controller
      */
     public function index(PlanetTransformer $transformer)
     {
+        /** @var \App\Models\Planet|null $planet */
         $planet = auth()->user()->current;
+
+        if (! $planet) {
+            return response()->json(['message' => 'No current planet assigned.'], 400);
+        }
 
         // Safety net: ensure grid slots exist for the planet.
         // Grids are normally created by the starmap Generator, but
         // this guards against data-integrity gaps (e.g. failed
         // generation, manual DB edits, or test fixtures).
         $planet->ensureGridsExist();
+
+        // Reload the grids relationship so the transformer sees the
+        // freshly created grid rows (ensureGridsExist may have just
+        // inserted them).
+        $planet->load('grids.construction', 'grids.upgrade', 'grids.training');
 
         return $transformer->transform($planet);
     }

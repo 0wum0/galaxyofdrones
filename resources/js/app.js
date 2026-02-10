@@ -93,6 +93,18 @@ router.afterEach(to => {
             });
         });
     }
+
+    if (to.name === 'home') {
+        // When entering the surface view, ensure no Leaflet artifacts
+        // remain in the DOM.  The Starmap component's beforeDestroy
+        // handles normal cleanup, but stale `.leaflet-container` elements
+        // can survive in edge cases (rapid navigation, mobile browser
+        // throttling of lifecycle hooks, etc.).
+        Vue.nextTick(() => {
+            const stale = document.querySelectorAll('#app .leaflet-container');
+            stale.forEach(el => el.remove());
+        });
+    }
 });
 
 const app = new Vue({
