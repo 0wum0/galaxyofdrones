@@ -11,6 +11,6 @@ return [
     |
     */
 
-    'emails' => explode(',', env('DEBUG_EMAILS'))
+    'emails' => explode(',', env('DEBUG_EMAILS', ''))
 
 ];

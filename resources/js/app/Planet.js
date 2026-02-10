@@ -73,8 +73,28 @@ export default Modal.extend({
         },
 
         jumpToSurface() {
-            this.openAfterHidden(() => {
-                this.$router.push({ name: 'home' });
+            // Close the Bootstrap modal immediately – do NOT depend on the
+            // hidden.bs.modal CSS-transition event (openAfterHidden) because
+            // it can silently fail on mobile browsers, background tabs, or
+            // when CSS transitions are throttled.
+            this.$modal.modal('hide');
+
+            // Clean up modal artifacts right away so nothing blocks the
+            // surface view (backdrop overlay, body scroll lock).
+            this.$nextTick(() => {
+                $('.modal-backdrop').remove();
+                $('body').removeClass('modal-open')
+                    .css({ overflow: '', 'padding-right': '' });
+            });
+
+            // Navigate to the surface (home) route.
+            this.$router.push({ name: 'home' }).catch(err => {
+                // If Vue Router rejects (NavigationDuplicated, etc.), fall
+                // back to a hard navigation so the user always reaches the
+                // surface page.
+                if (!err || err.name !== 'NavigationDuplicated') {
+                    window.location.href = '/';
+                }
             });
         },
 
