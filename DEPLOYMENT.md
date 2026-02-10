@@ -6,7 +6,7 @@ Galaxy of Drones ist fuer Shared Hosting (z.B. Hostinger CloudLinux) optimiert:
 - **Kein Docker** erforderlich
 - **Kein Redis** erforderlich (file cache/session, queue sync)
 - **Kein SSH** Pflicht – Installation komplett per Web-Installer
-- **Kein Node.js / npm Build** – Frontend-Assets sind vorgebaut
+- **Kein Node.js / npm Build auf dem Server** – Frontend-Assets werden per GitHub Actions gebaut und committed
 - **PHP 8.1-8.4** kompatibel, Laravel 10.x
 - StarMap-Generierung im Browser (kein CLI noetig)
 
@@ -300,8 +300,12 @@ Falls das Problem trotzdem auftritt:
 
 ### mix-manifest.json fehlt (500)
 
-Alle `mix()` Aufrufe wurden durch `asset()` ersetzt. Dieses Problem sollte
-nicht mehr auftreten. Die CSS/JS Assets liegen vorgebaut unter `public/css/` und `public/js/`.
+Alle `mix()` Aufrufe wurden durch `asset()` ersetzt. Die CSS/JS Assets werden
+automatisch per GitHub Actions gebaut und in den `master` Branch committed.
+`public/mix-manifest.json` wird ebenfalls committed (nicht mehr in `.gitignore`).
+
+Nach einem Pull/Import auf Hostinger sollten die Assets automatisch vorhanden sein.
+Falls nicht: GitHub Actions Tab prüfen, ob der "Build Assets" Workflow erfolgreich lief.
 
 ### TrustProxies
 
@@ -343,7 +347,7 @@ Diese Dateien sind in `.gitignore` eingetragen:
 - `storage/app/installer_state.json` – Installer-Zwischenstand
 - `vendor/` – Composer-Abhaengigkeiten
 - `node_modules/` – NPM-Abhaengigkeiten
-- `public/mix-manifest.json` – Build-Artefakt
+- `public/mix-manifest.json` – ~~Build-Artefakt~~ WIRD jetzt committed (GitHub Actions Build)
 - `public/tile/` – Generierte StarMap-Tiles
 
 ---
