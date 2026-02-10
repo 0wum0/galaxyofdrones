@@ -17,5 +17,10 @@
     "/images/sprite-item-sm.png": "/images/sprite-item-sm.png?id=c5920eead380b4541a99",
     "/images/sprite-item.png": "/images/sprite-item.png?id=045eca15c6eb1fa5fa58",
     "/images/starmap-bg.png": "/images/starmap-bg.png?id=16d41b4e65646d3a01ee",
-    "/favicon.ico": "/favicon.ico?id=36918ffa5197ed45f0a8"
+    "/favicon.ico": "/favicon.ico?id=36918ffa5197ed45f0a8",
+    "/css/images/layers-2x.png": "/css/images/layers-2x.png?id=f905cd0e87fcdde8969b",
+    "/css/images/layers.png": "/css/images/layers.png?id=3d61d49c98ea3572cae4",
+    "/css/images/marker-icon-2x.png": "/css/images/marker-icon-2x.png?id=da330e712dc6fc8c7d58",
+    "/css/images/marker-icon.png": "/css/images/marker-icon.png?id=1045a925825f69b0a874",
+    "/css/images/marker-shadow.png": "/css/images/marker-shadow.png?id=43ccefc930d47f2e3a17"
 }
