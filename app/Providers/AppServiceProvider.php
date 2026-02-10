@@ -43,12 +43,23 @@ class AppServiceProvider extends ServiceProvider
         foreach ([
             storage_path('framework/sessions'),
             storage_path('framework/cache'),
+            storage_path('framework/cache/data'),
             storage_path('framework/views'),
             storage_path('logs'),
+            storage_path('app'),
         ] as $dir) {
             if (! is_dir($dir)) {
                 @mkdir($dir, 0775, true);
             }
+        }
+
+        // Runtime safety: sanitize session.domain if it looks like a URL.
+        // This catches cases where SESSION_DOMAIN was set to a full URL
+        // (e.g. "https://god.makeit.uno") instead of a domain string.
+        $sessionDomain = config('session.domain');
+        if ($sessionDomain && str_contains($sessionDomain, '://')) {
+            $parsed = parse_url($sessionDomain, PHP_URL_HOST);
+            config(['session.domain' => $parsed ?: null]);
         }
     }
 

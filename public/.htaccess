@@ -5,6 +5,15 @@
 
     RewriteEngine On
 
+    # Force HTTPS (shared hosting / Hostinger)
+    # This MUST happen at the application level to prevent the hosting server
+    # from doing its own HTTP→HTTPS redirect which converts POST to GET and
+    # drops the request body. By handling it here, we ensure POST data is
+    # preserved for installer and other form submissions.
+    RewriteCond %{HTTPS} !=on
+    RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
     # Handle Authorization Header
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]

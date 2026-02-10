@@ -31,7 +31,7 @@ class InstallController extends Controller
     public function index(Request $request)
     {
         if ($this->isInstalled() && !$this->isUnlocked($request)) {
-            return redirect('/')->with('message', 'Application is already installed.');
+            return $this->installedRedirect();
         }
 
         // If installed, show updater mode
@@ -57,7 +57,7 @@ class InstallController extends Controller
     public function database(Request $request)
     {
         if ($this->isInstalled() && !$this->isUnlocked($request)) {
-            return redirect('/');
+            return $this->installedRedirect();
         }
 
         // Load defaults from installer state first (survives APP_KEY change),
@@ -85,7 +85,7 @@ class InstallController extends Controller
             if ($wantsJson) {
                 return response()->json(['success' => false, 'message' => 'Already installed.']);
             }
-            return redirect('/');
+            return $this->installedRedirect();
         }
 
         $validator = Validator::make($request->all(), [
@@ -112,6 +112,17 @@ class InstallController extends Controller
         $database = trimQuotes($request->db_database);
         $username = trimQuotes($request->db_username);
         $password = trimQuotes($request->db_password ?? '');
+
+        // Persist DB credentials in file-based state IMMEDIATELY (before testing).
+        // This ensures form data survives redirect loops, session loss, and
+        // APP_KEY changes. The database() view reads from InstallerState first.
+        $this->state->set([
+            'db_host' => $host,
+            'db_port' => $port,
+            'db_database' => $database,
+            'db_username' => $username,
+            'db_password' => $password,
+        ]);
 
         try {
             $connection = new \PDO(
@@ -140,16 +151,45 @@ class InstallController extends Controller
 
         $this->installerLog('DB test: connection successful');
 
-        // Persist DB credentials in file-based state (survives APP_KEY change)
-        $this->state->set([
-            'db_host' => $host,
-            'db_port' => $port,
-            'db_database' => $database,
-            'db_username' => $username,
-            'db_password' => $password,
+        // Proceed to write .env
+        return $this->writeEnvironment($request, $host, $port, $database, $username, $password);
+    }
+
+    /**
+     * GET fallback: Save environment from InstallerState.
+     *
+     * On shared hosting where POST requests are broken (e.g. Hostinger/LiteSpeed
+     * converting POST→GET or redirecting POST to root), the DB credentials are
+     * saved to InstallerState by the AJAX "Test Connection" call. This GET
+     * endpoint reads from that state and proceeds to write .env.
+     *
+     * Flow: User clicks "Test Connection" (AJAX POST works) → credentials saved
+     * to state → if form POST fails, user sees a fallback link to this GET
+     * endpoint → reads state → writes .env → redirects to migrate.
+     */
+    public function saveEnvironmentFromState(Request $request)
+    {
+        if ($this->isInstalled() && !$this->isUnlocked($request)) {
+            return $this->installedRedirect();
+        }
+
+        $host     = $this->state->get('db_host');
+        $port     = $this->state->get('db_port');
+        $database = $this->state->get('db_database');
+        $username = $this->state->get('db_username');
+        $password = $this->state->get('db_password', '');
+
+        if (empty($host) || empty($database) || empty($username)) {
+            $this->installerLog('saveEnvironmentFromState: no DB credentials in state');
+            return redirect()->route('install.database')
+                ->withErrors(['db_host' => 'No database credentials found. Please test the connection first using the "Test Connection" button.']);
+        }
+
+        $this->installerLog('saveEnvironmentFromState: proceeding with state credentials', [
+            'host' => $host,
+            'database' => $database,
         ]);
 
-        // Proceed to write .env
         return $this->writeEnvironment($request, $host, $port, $database, $username, $password);
     }
 
@@ -162,7 +202,7 @@ class InstallController extends Controller
     public function environment(Request $request)
     {
         if ($this->isInstalled() && !$this->isUnlocked($request)) {
-            return redirect('/');
+            return $this->installedRedirect();
         }
 
         $validator = Validator::make($request->all(), [
@@ -248,6 +288,9 @@ class InstallController extends Controller
             'SESSION_LIFETIME' => '120',
             'SESSION_SECURE_COOKIE' => 'null',
             'SESSION_SAME_SITE' => 'lax',
+            // Do NOT set SESSION_DOMAIN — null (auto-detect) works everywhere.
+            // Setting it to a URL was a known bug causing cookie/session failures.
+            'TRUSTED_PROXIES' => '*',
             'MAIL_MAILER' => 'smtp',
             'MAIL_HOST' => 'localhost',
             'MAIL_PORT' => '587',
@@ -295,7 +338,7 @@ class InstallController extends Controller
     public function migrate(Request $request)
     {
         if ($this->isInstalled() && !$this->isUnlocked($request)) {
-            return redirect('/');
+            return $this->installedRedirect();
         }
 
         // Check file-based state (NOT session – sessions break after APP_KEY change)
@@ -391,7 +434,7 @@ class InstallController extends Controller
     public function starmap(Request $request)
     {
         if ($this->isInstalled() && !$this->isUnlocked($request)) {
-            return redirect('/');
+            return $this->installedRedirect();
         }
 
         if (!$this->state->hasCompleted('migrated')) {
@@ -422,7 +465,7 @@ class InstallController extends Controller
     public function generateStarmap(Request $request)
     {
         if ($this->isInstalled() && !$this->isUnlocked($request)) {
-            return redirect('/');
+            return $this->installedRedirect();
         }
 
         $this->reconnectDatabase();
@@ -484,7 +527,7 @@ class InstallController extends Controller
     public function admin(Request $request)
     {
         if ($this->isInstalled() && !$this->isUnlocked($request)) {
-            return redirect('/');
+            return $this->installedRedirect();
         }
 
         if (!$this->state->hasCompleted('migrated')) {
@@ -500,7 +543,7 @@ class InstallController extends Controller
     public function createAdmin(Request $request)
     {
         if ($this->isInstalled() && !$this->isUnlocked($request)) {
-            return redirect('/');
+            return $this->installedRedirect();
         }
 
         try {
@@ -551,7 +594,7 @@ class InstallController extends Controller
     public function complete(Request $request)
     {
         if ($this->isInstalled() && !$this->isUnlocked($request)) {
-            return redirect('/');
+            return $this->installedRedirect();
         }
 
         if (!$this->state->hasCompleted('admin_created')) {
@@ -782,6 +825,53 @@ class InstallController extends Controller
     protected function isInstalled(): bool
     {
         return file_exists(storage_path('installed.lock'));
+    }
+
+    /**
+     * Redirect response for "already installed" state.
+     *
+     * Returns a clear HTML page telling the user the app is installed,
+     * instead of a bare redirect('/') which on shared hosting can cause
+     * confusing redirect loops (CheckInstalled → /install → locked → / → repeat).
+     *
+     * For JSON/AJAX requests, returns a JSON response.
+     */
+    protected function installedRedirect(): \Symfony\Component\HttpFoundation\Response
+    {
+        if (request()->expectsJson() || request()->ajax()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Application is already installed. Use ?token=YOUR_INSTALL_TOKEN to unlock.',
+            ], 403);
+        }
+
+        // Return a simple HTML page instead of redirect('/') to avoid redirect loops.
+        // The redirect('/') was causing loops on Hostinger because:
+        //   1. POST /install/test-database → redirect('/') [installed + no token]
+        //   2. GET / → CheckInstalled → redirect('/install') [no installed.lock? or web middleware issues]
+        //   3. GET /install → redirect('/') [installed + no token]
+        //   → infinite loop or confusing behavior
+        $homeUrl = url('/');
+        $installUrl = url('/install');
+        return response(
+            '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Already Installed</title>'
+            . '<style>body{font-family:sans-serif;background:#0a0e27;color:#e0e6ed;display:flex;'
+            . 'align-items:center;justify-content:center;min-height:100vh;}'
+            . '.box{text-align:center;max-width:500px;padding:40px;}'
+            . 'a{color:#64b5f6;text-decoration:none;padding:10px 20px;border:1px solid #42a5f5;'
+            . 'border-radius:8px;display:inline-block;margin:8px;}'
+            . 'a:hover{background:#1565c0;}</style></head><body><div class="box">'
+            . '<h1>Galaxy of Drones</h1>'
+            . '<p>The application is already installed.</p>'
+            . '<p style="color:#78909c;font-size:14px;">To access the updater/repair tools, '
+            . 'use your INSTALL_TOKEN:<br><code>' . e($installUrl) . '?token=YOUR_INSTALL_TOKEN</code></p>'
+            . '<p style="color:#78909c;font-size:14px;">Or create the file <code>storage/install.unlock</code></p>'
+            . '<a href="' . e($homeUrl) . '">Go to Game</a>'
+            . '<a href="' . e($homeUrl) . '/admin">Admin Panel</a>'
+            . '</div></body></html>',
+            200,
+            ['Content-Type' => 'text/html']
+        );
     }
 
     // ─── HELPERS ─────────────────────────────────────────

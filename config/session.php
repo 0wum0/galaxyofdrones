@@ -155,7 +155,35 @@ return [
     |
     */
 
-    'domain' => env('SESSION_DOMAIN', null),
+    // Sanitize SESSION_DOMAIN: must be a domain string (e.g. ".makeit.uno"),
+    // NEVER a URL. A common misconfiguration on shared hosting is setting
+    // SESSION_DOMAIN to "https://god.makeit.uno" instead of null or ".makeit.uno".
+    // If a URL is detected, extract just the host part; if still invalid, use null.
+    'domain' => (function () {
+        $raw = env('SESSION_DOMAIN');
+
+        if ($raw === null || $raw === '' || $raw === 'null') {
+            return null;
+        }
+
+        // Strip URL scheme if accidentally included (e.g. "https://god.makeit.uno")
+        if (str_contains($raw, '://')) {
+            $parsed = parse_url($raw, PHP_URL_HOST);
+            $raw = $parsed ?: null;
+        }
+
+        // Strip port, path, query fragments
+        if ($raw !== null) {
+            $raw = strtok($raw, ':/');
+        }
+
+        // Validate: must look like a domain (contains a dot or is localhost)
+        if ($raw !== null && $raw !== 'localhost' && !str_contains($raw, '.')) {
+            return null;
+        }
+
+        return $raw ?: null;
+    })(),
 
     /*
     |--------------------------------------------------------------------------
