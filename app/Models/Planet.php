@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Contracts\Models\Behaviors\Positionable as PositionableContract;
+use App\Starmap\Generator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -220,6 +221,62 @@ class Planet extends Model implements PositionableContract
     public function isCapital()
     {
         return $this->user_id && $this->id == $this->user->capital_id;
+    }
+
+    /**
+     * Ensure that grid slots exist for this planet.
+     *
+     * Idempotent: if grids already exist, this is a no-op.
+     * Creates the standard 5×5 grid with a central slot and
+     * resource slots matching the planet's resource_count.
+     *
+     * @return void
+     */
+    public function ensureGridsExist()
+    {
+        if ($this->grids()->exists()) {
+            return;
+        }
+
+        $gridCount = Generator::GRID_COUNT;
+        $max = pow($gridCount, 2);
+
+        // Build an index array [0 … max-1] and remove the center slot.
+        $slots = range(0, $max - 1);
+        $center = (int) floor($max / 2);
+
+        // Pick random resource slot positions (excluding center).
+        $candidates = $slots;
+        unset($candidates[$center]);
+        $candidates = array_values($candidates);
+
+        $resourceSlots = (array) array_rand(
+            array_flip($candidates),
+            min($this->resource_count, count($candidates))
+        );
+
+        $i = 0;
+
+        for ($x = 0; $x < $gridCount; $x++) {
+            for ($y = 0; $y < $gridCount; $y++) {
+                $type = Grid::TYPE_PLAIN;
+
+                if ($i === $center) {
+                    $type = Grid::TYPE_CENTRAL;
+                } elseif (in_array($i, $resourceSlots)) {
+                    $type = Grid::TYPE_RESOURCE;
+                }
+
+                Grid::create([
+                    'planet_id' => $this->id,
+                    'x' => $x,
+                    'y' => $y,
+                    'type' => $type,
+                ]);
+
+                $i++;
+            }
+        }
     }
 
     /**

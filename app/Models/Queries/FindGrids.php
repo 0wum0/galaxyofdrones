@@ -14,7 +14,7 @@ trait FindGrids
     public function findGrids($columns = ['*'])
     {
         return $this->grids()
-            ->with('construction', 'upgrade')
+            ->with('construction', 'upgrade', 'training')
             ->get($columns);
     }
 }

@@ -34,9 +34,15 @@ class PlanetController extends Controller
      */
     public function index(PlanetTransformer $transformer)
     {
-        return $transformer->transform(
-            auth()->user()->current
-        );
+        $planet = auth()->user()->current;
+
+        // Safety net: ensure grid slots exist for the planet.
+        // Grids are normally created by the starmap Generator, but
+        // this guards against data-integrity gaps (e.g. failed
+        // generation, manual DB edits, or test fixtures).
+        $planet->ensureGridsExist();
+
+        return $transformer->transform($planet);
     }
 
     /**
