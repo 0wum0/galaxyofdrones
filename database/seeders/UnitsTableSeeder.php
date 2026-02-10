@@ -9,13 +9,17 @@ class UnitsTableSeeder extends Seeder
 {
     /**
      * Run the database seed.
+     *
+     * Idempotent: skips if units already exist.
      */
     public function run()
     {
+        if (Unit::count() > 0) {
+            return;
+        }
+
         Unit::create([
-            'name' => [
-                'en' => 'Goliath',
-            ],
+            'name' => ['en' => 'Goliath'],
             'type' => Unit::TYPE_TRANSPORTER,
             'is_unlocked' => true,
             'speed' => 2,
@@ -24,16 +28,12 @@ class UnitsTableSeeder extends Seeder
             'supply' => 10,
             'train_cost' => 340,
             'train_time' => 1800,
-            'description' => [
-                'en' => 'Transports the minerals.',
-            ],
+            'description' => ['en' => 'Transports the minerals.'],
             'capacity' => 100,
         ]);
 
         Unit::create([
-            'name' => [
-                'en' => 'Icarus',
-            ],
+            'name' => ['en' => 'Icarus'],
             'type' => Unit::TYPE_SCOUT,
             'is_unlocked' => true,
             'speed' => 5,
@@ -42,16 +42,12 @@ class UnitsTableSeeder extends Seeder
             'supply' => 8,
             'train_cost' => 170,
             'train_time' => 1500,
-            'description' => [
-                'en' => 'Scouts the stars or planets.',
-            ],
+            'description' => ['en' => 'Scouts the stars or planets.'],
             'detection' => 25,
         ]);
 
         Unit::create([
-            'name' => [
-                'en' => 'Phoenix',
-            ],
+            'name' => ['en' => 'Phoenix'],
             'type' => Unit::TYPE_FIGHTER,
             'is_unlocked' => true,
             'speed' => 4,
@@ -60,16 +56,12 @@ class UnitsTableSeeder extends Seeder
             'supply' => 1,
             'train_cost' => 170,
             'train_time' => 1320,
-            'description' => [
-                'en' => 'Fights in the battle.',
-            ],
+            'description' => ['en' => 'Fights in the battle.'],
             'capacity' => 20,
         ]);
 
         Unit::create([
-            'name' => [
-                'en' => 'Falcon',
-            ],
+            'name' => ['en' => 'Falcon'],
             'type' => Unit::TYPE_FIGHTER,
             'speed' => 3,
             'attack' => 150,
@@ -77,9 +69,7 @@ class UnitsTableSeeder extends Seeder
             'supply' => 5,
             'train_cost' => 470,
             'train_time' => 2400,
-            'description' => [
-                'en' => 'Fights in the battle.',
-            ],
+            'description' => ['en' => 'Fights in the battle.'],
             'capacity' => 10,
             'research_experience' => 41125,
             'research_cost' => 82250,
@@ -87,9 +77,7 @@ class UnitsTableSeeder extends Seeder
         ]);
 
         Unit::create([
-            'name' => [
-                'en' => 'Viking',
-            ],
+            'name' => ['en' => 'Viking'],
             'type' => Unit::TYPE_FIGHTER,
             'speed' => 4,
             'attack' => 10,
@@ -97,9 +85,7 @@ class UnitsTableSeeder extends Seeder
             'supply' => 1,
             'train_cost' => 100,
             'train_time' => 840,
-            'description' => [
-                'en' => 'Fights in the battle.',
-            ],
+            'description' => ['en' => 'Fights in the battle.'],
             'capacity' => 20,
             'research_experience' => 14875,
             'research_cost' => 29750,
@@ -107,9 +93,7 @@ class UnitsTableSeeder extends Seeder
         ]);
 
         Unit::create([
-            'name' => [
-                'en' => 'Raven',
-            ],
+            'name' => ['en' => 'Raven'],
             'type' => Unit::TYPE_FIGHTER,
             'speed' => 3,
             'attack' => 50,
@@ -117,9 +101,7 @@ class UnitsTableSeeder extends Seeder
             'supply' => 5,
             'train_cost' => 450,
             'train_time' => 2100,
-            'description' => [
-                'en' => 'Fights in the battle.',
-            ],
+            'description' => ['en' => 'Fights in the battle.'],
             'capacity' => 10,
             'research_experience' => 39375,
             'research_cost' => 78750,
@@ -127,9 +109,7 @@ class UnitsTableSeeder extends Seeder
         ]);
 
         Unit::create([
-            'name' => [
-                'en' => 'Zeus',
-            ],
+            'name' => ['en' => 'Zeus'],
             'type' => Unit::TYPE_HEAVY_FIGHTER,
             'speed' => 1,
             'attack' => 100,
@@ -137,18 +117,14 @@ class UnitsTableSeeder extends Seeder
             'supply' => 10,
             'train_cost' => 4800,
             'train_time' => 4800,
-            'description' => [
-                'en' => 'Destroys the buildings.',
-            ],
+            'description' => ['en' => 'Destroys the buildings.'],
             'research_experience' => 61250,
             'research_cost' => 122500,
             'research_time' => 245000,
         ]);
 
         Unit::create([
-            'name' => [
-                'en' => 'Helios',
-            ],
+            'name' => ['en' => 'Helios'],
             'type' => Unit::TYPE_SETTLER,
             'speed' => 1,
             'attack' => 1,
@@ -156,9 +132,7 @@ class UnitsTableSeeder extends Seeder
             'supply' => 100,
             'train_cost' => 31200,
             'train_time' => 10800,
-            'description' => [
-                'en' => 'Occupies the planets.',
-            ],
+            'description' => ['en' => 'Occupies the planets.'],
             'research_experience' => 10282,
             'research_cost' => 20563,
             'research_time' => 41126,

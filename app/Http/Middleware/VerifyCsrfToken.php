@@ -11,13 +11,15 @@ class VerifyCsrfToken extends Middleware
      *
      * The installer routes are excluded as a safety-net for environments
      * (e.g. Hostinger) where proxy/session issues may still cause 419
-     * errors even after the TrustProxies fix.  The installer is only
-     * reachable when the app has NOT been installed yet (guarded by
-     * the isInstalled() check in InstallController).
+     * errors even after the TrustProxies fix.  The installer is protected
+     * by the isInstalled() + isUnlocked() checks in InstallController.
+     *
+     * The cron endpoint is token-protected and doesn't use sessions.
      *
      * @var array
      */
     protected $except = [
         'install/*',
+        'cron/*',
     ];
 }

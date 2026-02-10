@@ -1,14 +1,16 @@
 @extends('install.layout', ['step' => 2])
 
+@section('page_title', 'Database')
+
 @section('content')
 <div class="card">
     <h2>Step 2: Database Configuration</h2>
     <p style="color: #78909c; margin-bottom: 20px;">
-        Enter your MySQL database credentials. You can find these in your Hostinger hPanel under Databases.
+        Enter your MySQL database credentials. You can find these in your hosting control panel.
     </p>
 
     @if ($errors->any())
-        <div class="alert alert-danger" style="background:#fdecea;border:1px solid #f5c6cb;color:#721c24;padding:12px 16px;border-radius:6px;margin-bottom:16px;">
+        <div class="alert alert-danger">
             <strong>Error:</strong>
             <ul style="margin:6px 0 0 18px;padding:0;">
                 @foreach ($errors->all() as $error)
@@ -86,7 +88,6 @@ function testConnection() {
     })
     .then(r => {
         if (r.status === 419) {
-            // CSRF token mismatch – session may have expired
             throw new Error('Session expired (419). Please reload the page and try again.');
         }
         if (r.status === 500) {

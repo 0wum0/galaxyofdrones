@@ -151,6 +151,9 @@
             <a href="{{ route('admin.logs.index') }}" class="{{ request()->routeIs('admin.logs.*') ? 'active' : '' }}">
                 &#9632; Logs
             </a>
+            <a href="{{ route('admin.starmap.index') }}" class="{{ request()->routeIs('admin.starmap.*') ? 'active' : '' }}">
+                &#9632; StarMap
+            </a>
             <a href="{{ url('/') }}">
                 &#9632; Back to Game
             </a>

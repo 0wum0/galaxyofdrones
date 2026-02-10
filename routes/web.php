@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Admin\SettingController as AdminSettingController;
 use App\Http\Controllers\Admin\LogController as AdminLogController;
+use App\Http\Controllers\Admin\StarmapController as AdminStarmapController;
 use App\Http\Controllers\Web\ForgotPasswordController;
 use App\Http\Controllers\Web\HomeController;
 use App\Http\Controllers\Web\LoginController;
@@ -16,7 +17,7 @@ use App\Http\Controllers\Web\VerificationController;
 
 /*
 |--------------------------------------------------------------------------
-| Installer Routes (only accessible when not installed)
+| Installer Routes (accessible when not installed, or when unlocked)
 |--------------------------------------------------------------------------
 */
 
@@ -27,12 +28,15 @@ Route::group([
     Route::get('/', [InstallController::class, 'index'])->name('index');
     Route::get('/database', [InstallController::class, 'database'])->name('database');
     Route::post('/test-database', [InstallController::class, 'testDatabase'])->name('test_database');
-    Route::post('/database', [InstallController::class, 'testDatabase'])->name('database_post'); // Alias: prevents 405 if form posts to /install/database
+    Route::post('/database', [InstallController::class, 'testDatabase'])->name('database_post');
     Route::post('/environment', [InstallController::class, 'environment'])->name('environment');
     Route::get('/migrate', [InstallController::class, 'migrate'])->name('migrate');
+    Route::get('/starmap', [InstallController::class, 'starmap'])->name('starmap');
+    Route::post('/starmap', [InstallController::class, 'generateStarmap'])->name('generate_starmap');
     Route::get('/admin', [InstallController::class, 'admin'])->name('admin');
     Route::post('/admin', [InstallController::class, 'createAdmin'])->name('create_admin');
     Route::get('/complete', [InstallController::class, 'complete'])->name('complete');
+    Route::post('/update', [InstallController::class, 'runUpdate'])->name('run_update');
 });
 
 /*
@@ -64,6 +68,9 @@ Route::group([
     Route::put('/settings/{gameSetting}', [AdminSettingController::class, 'update'])->name('settings.update');
     Route::delete('/settings/{gameSetting}', [AdminSettingController::class, 'destroy'])->name('settings.destroy');
     Route::get('/logs', [AdminLogController::class, 'index'])->name('logs.index');
+    Route::get('/starmap', [AdminStarmapController::class, 'index'])->name('starmap.index');
+    Route::post('/starmap/generate', [AdminStarmapController::class, 'generate'])->name('starmap.generate');
+    Route::post('/starmap/expand', [AdminStarmapController::class, 'expand'])->name('starmap.expand');
 });
 
 /*

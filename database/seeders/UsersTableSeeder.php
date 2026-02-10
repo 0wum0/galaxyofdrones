@@ -11,14 +11,18 @@ class UsersTableSeeder extends Seeder
 {
     /**
      * Run the database seed.
+     *
+     * Idempotent: uses firstOrCreate so re-running (updater) won't duplicate the default user.
      */
     public function run()
     {
-        User::create([
-            'username' => 'koodilab',
-            'email' => 'support@koodilab.com',
-            'email_verified_at' => Carbon::now(),
-            'password' => Hash::make('havefun'),
-        ]);
+        User::firstOrCreate(
+            ['username' => 'koodilab'],
+            [
+                'email' => 'support@koodilab.com',
+                'email_verified_at' => Carbon::now(),
+                'password' => Hash::make('havefun'),
+            ]
+        );
     }
 }

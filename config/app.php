@@ -94,6 +94,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Install Token
+    |--------------------------------------------------------------------------
+    |
+    | Token used to unlock the installer/updater after installation.
+    | Set in .env as INSTALL_TOKEN. Generated during first install.
+    |
+    */
+
+    'install_token' => env('INSTALL_TOKEN'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Locale Configuration
     |--------------------------------------------------------------------------
     |
