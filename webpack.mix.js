@@ -1,5 +1,7 @@
 const mix = require('laravel-mix');
 const glob = require('glob');
+const fs   = require('fs');
+const path = require('path');
 
 /*
  |--------------------------------------------------------------------------
@@ -23,6 +25,88 @@ mix.options({ processCssUrls: false })
     .vue()
     .version()
     .extract();
+
+/*
+ |--------------------------------------------------------------------------
+ | Fix CSS-only chunk dependency (webpack 5 + mini-css-extract-plugin 1.x)
+ |--------------------------------------------------------------------------
+ |
+ | When .extract() creates a separate runtime (manifest.js), the CSS
+ | extraction also creates an implicit CSS-only chunk. This chunk is
+ | loaded via a <link> tag, NOT via a <script> tag, so the webpack
+ | runtime never marks it as "installed". The entry-point callback
+ | (which contains new Vue(…).$mount) waits for ALL dependency chunks
+ | — including the CSS one — and never fires.
+ |
+ | This plugin runs after webpack emits files and patches manifest.js
+ | to pre-install any chunk IDs that app.js depends on but that have
+ | no corresponding .js file (i.e. CSS-only chunks).
+ |
+ */
+
+mix.webpackConfig({
+    plugins: [{
+        apply(compiler) {
+            compiler.hooks.afterEmit.tap('PreInstallCssChunks', () => {
+                // compiler.options.output.path is typically 'public/',
+                // but JS files live under 'public/js/'.
+                const jsDir = path.join(compiler.options.output.path, 'js');
+
+                const manifestPath = path.join(jsDir, 'manifest.js');
+                const appPath      = path.join(jsDir, 'app.js');
+
+                if (!fs.existsSync(manifestPath) || !fs.existsSync(appPath)) return;
+
+                const appContent = fs.readFileSync(appPath, 'utf8');
+
+                // Find entry-point dependency array, e.g. .O(void 0,[170,898],…)
+                const depMatch = appContent.match(/\.O\(void 0,\[([0-9,]+)\]/);
+                if (!depMatch) return;
+
+                const requiredIds = depMatch[1].split(',').map(Number);
+
+                let manifest = fs.readFileSync(manifestPath, 'utf8');
+
+                // Find the installed-chunks object, e.g. var e={929:0,170:0};
+                const installedRe = /(var \w=\{)((\d+:\d+,?)+)(\})/;
+                const instMatch   = manifest.match(installedRe);
+                if (!instMatch) return;
+
+                const installedIds = new Set(
+                    instMatch[2].split(',').map(p => parseInt(p.split(':')[0], 10))
+                );
+
+                // Any chunk ID required by the entry but not in the runtime
+                // AND without a corresponding .js file is a CSS-only chunk.
+                const missing = requiredIds.filter(id => {
+                    if (installedIds.has(id)) return false;
+                    // Check if a real JS file delivers this chunk
+                    const jsFiles = fs.readdirSync(jsDir).filter(f => f.endsWith('.js'));
+                    return !jsFiles.some(f => {
+                        const content = fs.readFileSync(path.join(jsDir, f), 'utf8');
+                        // Chunk files start with (self.webpackChunk…).push([[ID],…])
+                        const chunkIdRe = /\.push\(\[\[([0-9,]+)\]/;
+                        const m = content.match(chunkIdRe);
+                        return m && m[1].split(',').map(Number).includes(id);
+                    });
+                });
+
+                if (!missing.length) return;
+
+                const additions = missing.map(id => `${id}:0`).join(',');
+                manifest = manifest.replace(
+                    instMatch[0],
+                    `${instMatch[1]}${instMatch[2]},${additions}${instMatch[4]}`
+                );
+                fs.writeFileSync(manifestPath, manifest);
+
+                console.log(
+                    `[PreInstallCssChunks] Patched manifest.js — added chunk(s) ${missing.join(', ')} to installed set.`
+                );
+            });
+        }
+    }]
+});
 
 /*
  |--------------------------------------------------------------------------
