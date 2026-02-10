@@ -67,6 +67,14 @@ export default {
     mounted() {
         EventBus.$on('planet-updated', this.planetUpdated);
         EventBus.$on('starmap-move', this.starmapMove);
+
+        // After the component is mounted and the DOM is ready,
+        // invalidate the map size so Leaflet recalculates its dimensions.
+        this.$nextTick(() => {
+            if (this.map) {
+                this.map.invalidateSize(true);
+            }
+        });
     },
 
     beforeDestroy() {
@@ -152,6 +160,19 @@ export default {
 
             this.zoomControl().addTo(this.map);
             this.bookmarkControl().addTo(this.map);
+
+            // Expose the map instance globally for debugging and external
+            // invalidateSize() calls (e.g. after tab/route transitions).
+            window.__starmap = this.map;
+
+            // Force Leaflet to recalculate container size after all layers
+            // and controls have been added. Wrapped in nextTick + rAF to
+            // ensure the DOM has fully settled (critical on mobile).
+            this.$nextTick(() => {
+                requestAnimationFrame(() => {
+                    this.map.invalidateSize(true);
+                });
+            });
         },
 
         destoryLeaflet() {
@@ -161,6 +182,7 @@ export default {
 
             this.map.remove();
             this.map = undefined;
+            window.__starmap = undefined;
         },
 
         geoJson() {

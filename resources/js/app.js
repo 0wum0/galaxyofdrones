@@ -69,6 +69,23 @@ const router = new VueRouter({
     ]
 });
 
+/**
+ * When navigating to the starmap route, the Leaflet container may have been
+ * rendered while hidden or at zero size. We force invalidateSize after the
+ * transition so tiles load correctly, especially on mobile.
+ */
+router.afterEach((to) => {
+    if (to.name === 'starmap') {
+        Vue.nextTick(() => {
+            requestAnimationFrame(() => {
+                if (window.__starmap) {
+                    window.__starmap.invalidateSize(true);
+                }
+            });
+        });
+    }
+});
+
 const app = new Vue({
     router,
 

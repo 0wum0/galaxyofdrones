@@ -1,1 +1,7 @@
 @import '~leaflet/dist/leaflet.css';
+
+// Global fallback: Leaflet containers must always fill their parent.
+.leaflet-container {
+    height: 100%;
+    width: 100%;
+}

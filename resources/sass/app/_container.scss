@@ -1,15 +1,20 @@
 .container-app {
     background: url('../images/starmap-bg.png?v=#{$cache-buster}') center top no-repeat;
-    height: 100vh;
+    height: var(--app-vh, 100vh);
     margin: 0 auto;
     max-height: 1080px;
     max-width: 1920px;
     overflow: hidden;
     position: relative;
 
+    // On small screens, remove max-height so the map fills the visible viewport.
+    @media (max-width: 1080px), (max-height: 1080px) {
+        max-height: none;
+    }
+
     &-standalone {
         height: auto;
-        min-height: 100vh;
+        min-height: var(--app-vh, 100vh);
         @extend .container-fluid;
 
         .logo {
