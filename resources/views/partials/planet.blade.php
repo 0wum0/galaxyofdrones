@@ -13,7 +13,7 @@
                 <div class="modal-body">
                     <div class="row">
                         <div class="col-lg-6 text-center">
-                            <span class="item" :class="data.resource_id | item('planet')"></span>
+                            <span v-if="data.resource_id" class="item" :class="data.resource_id | item('planet')"></span>
                         </div>
                         <div class="col-lg-6">
                             <div class="attribute-row separator">
@@ -66,9 +66,11 @@
                             <div v-if="isCurrent" class="attribute-row">
                                 <div class="col-lg-6">
                                     <div class="form-group">
-                                        <router-link :to="{name: 'home'}" class="btn btn-primary btn-block">
+                                        <button class="btn btn-primary btn-block"
+                                                type="button"
+                                                @click="jumpToSurface()">
                                             {{ __('messages.planet.jump') }}
-                                        </router-link>
+                                        </button>
                                     </div>
                                 </div>
                             </div>

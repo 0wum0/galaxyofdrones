@@ -70,11 +70,20 @@ const router = new VueRouter({
 });
 
 /**
- * When navigating to the starmap route, the Leaflet container may have been
- * rendered while hidden or at zero size. We force invalidateSize after the
- * transition so tiles load correctly, especially on mobile.
+ * After every route transition, clean up Bootstrap modal state that may
+ * linger when navigating via a button inside a modal.  Also force
+ * Leaflet invalidateSize when entering the starmap route.
  */
-router.afterEach((to) => {
+router.afterEach(to => {
+    // Remove any lingering Bootstrap modal backdrop and body class.
+    // This is critical when navigating away while a modal is still visible
+    // (e.g. "Jump to surface" from the planet modal on the starmap).
+    Vue.nextTick(() => {
+        $('.modal.show').modal('hide');
+        $('.modal-backdrop').remove();
+        $('body').removeClass('modal-open').css({ overflow: '', 'padding-right': '' });
+    });
+
     if (to.name === 'starmap') {
         Vue.nextTick(() => {
             requestAnimationFrame(() => {
