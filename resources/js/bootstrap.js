@@ -80,6 +80,18 @@ window.axios.interceptors.response.use(null, error => {
 
     if (status === 401 || status === 403) {
         window.location.reload();
+    } else if (status === 419) {
+        // CSRF token mismatch — session likely expired or cookie lost.
+        // Reload the page to obtain a fresh session + CSRF token.
+        Swal.fire({
+            icon: 'warning',
+            title: Translations.error.whoops,
+            text: 'Session expired. The page will reload.',
+            showConfirmButton: false,
+            timer: 1500
+        }).then(() => {
+            window.location.reload();
+        });
     } else if (status === 500) {
         Swal.fire({
             icon: 'error',
