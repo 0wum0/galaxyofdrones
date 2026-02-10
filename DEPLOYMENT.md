@@ -270,7 +270,28 @@ php artisan game:generate-starmap --stars=2000 --planets-per-star=3 --clear --sh
 
 ### DB Step springt zurueck (geloest)
 
-Dieses Problem wurde durch file-based state tracking geloest. Falls es trotzdem auftritt:
+Dieses Problem hatte mehrere Ursachen:
+
+1. **Fehlende APP_KEY:** Ohne `.env`/`APP_KEY` konnte `EncryptCookies` den Session-Cookie
+   nicht ver-/entschluesseln → Session-Daten (Flash-Daten, alte Eingaben) gingen verloren.
+   **Fix:** `EncryptCookies` und `SafeEncryptCookies` fangen `MissingAppKeyException` ab
+   und arbeiten ohne Verschluesselung waehrend der Installation.
+
+2. **POST-Redirect auf Hostinger/LiteSpeed:** Server-seitige HTTPS-Redirects koennen POST
+   in GET umwandeln → Formulardaten gehen verloren. **Fix:** `public/.htaccess` erzwingt
+   HTTPS auf App-Ebene; der Installer nutzt AJAX + GET-Fallback (`/install/save-environment`)
+   statt reiner POST-Formulare.
+
+3. **SESSION_DOMAIN als URL:** `SESSION_DOMAIN=https://domain.com` (statt `null` oder
+   `.domain.com`) bricht Cookie-Zustellung komplett. **Fix:** `config/session.php` und
+   `AppServiceProvider` sanitieren SESSION_DOMAIN automatisch.
+
+4. **redirect('/') Endlosschleife:** Wenn `installed.lock` existierte, redirectete der
+   Installer zu `/`, was CheckInstalled wieder zu `/install` schickte. **Fix:** Statt
+   `redirect('/')` zeigt der Installer eine informative HTML-Seite mit Hinweis auf den
+   INSTALL_TOKEN.
+
+Falls das Problem trotzdem auftritt:
 
 1. Loesche `storage/app/installer_state.json`
 2. Loesche `storage/installed.lock`
