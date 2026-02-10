@@ -12,7 +12,7 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Event;
-use Laravel\Passport\Passport;
+
 use Tests\TestCase;
 
 class ConstructionTest extends TestCase
@@ -25,7 +25,7 @@ class ConstructionTest extends TestCase
 
         $user = User::factory()->create();
 
-        Passport::actingAs($user);
+        $this->actingAs($user);
 
         $planet = Planet::factory()->create([
             'user_id' => $user->id,

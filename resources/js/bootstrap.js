@@ -73,14 +73,21 @@ require('perfect-scrollbar');
 
 /**
  * We will register the global error handling.
+ *
+ * Each HTTP status code gets a specific, user-friendly treatment instead
+ * of a blanket "Something went wrong" popup:
+ *
+ *   419 → Session expired, auto-reload
+ *   401 → Redirect to login
+ *   403 → Permission denied (silent for most cases)
+ *   422 → Validation errors (let component handle it)
+ *   500+ → Server error with generic message
  */
 
 window.axios.interceptors.response.use(null, error => {
     const status = _.get(error.response, 'status');
 
-    if (status === 401 || status === 403) {
-        window.location.reload();
-    } else if (status === 419) {
+    if (status === 419) {
         // CSRF token mismatch — session likely expired or cookie lost.
         // Reload the page to obtain a fresh session + CSRF token.
         Swal.fire({
@@ -92,7 +99,23 @@ window.axios.interceptors.response.use(null, error => {
         }).then(() => {
             window.location.reload();
         });
-    } else if (status === 500) {
+    } else if (status === 401) {
+        // Unauthenticated — redirect to login page.
+        window.location.href = '/login';
+    } else if (status === 403) {
+        // Forbidden — show a brief notice instead of silent reload.
+        Swal.fire({
+            icon: 'warning',
+            title: Translations.error.whoops,
+            text: 'Permission denied.',
+            showConfirmButton: false,
+            timer: 1500
+        });
+    } else if (status === 422) {
+        // Validation error — the calling component should handle
+        // error.response.data.errors.  We do NOT show a generic popup.
+    } else if (status >= 500) {
+        // Server error — show generic message.
         Swal.fire({
             icon: 'error',
             title: Translations.error.whoops,

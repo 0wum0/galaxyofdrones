@@ -7,7 +7,7 @@ use App\Models\Resource;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
-use Laravel\Passport\Passport;
+
 use Tests\TestCase;
 
 class MissionTest extends TestCase
@@ -23,7 +23,7 @@ class MissionTest extends TestCase
             'solarion' => 50,
         ]);
 
-        Passport::actingAs($user);
+        $this->actingAs($user);
     }
 
     public function testIndex()

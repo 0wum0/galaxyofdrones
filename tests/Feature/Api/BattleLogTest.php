@@ -9,7 +9,7 @@ use App\Models\Unit;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
-use Laravel\Passport\Passport;
+
 use Tests\TestCase;
 
 class BattleLogTest extends TestCase
@@ -24,7 +24,7 @@ class BattleLogTest extends TestCase
             'started_at' => Carbon::now(),
         ]);
 
-        Passport::actingAs($user);
+        $this->actingAs($user);
     }
 
     public function testIndex()

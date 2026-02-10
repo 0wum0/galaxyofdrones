@@ -6,7 +6,7 @@ use App\Models\Rank;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
-use Laravel\Passport\Passport;
+
 use Tests\TestCase;
 
 class RankTest extends TestCase
@@ -21,7 +21,7 @@ class RankTest extends TestCase
             'started_at' => Carbon::now(),
         ]);
 
-        Passport::actingAs($user);
+        $this->actingAs($user);
     }
 
     public function testPve()

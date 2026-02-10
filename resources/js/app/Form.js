@@ -58,7 +58,13 @@ export default Modal.extend({
 
         handleError(error) {
             this.isSubmitted = false;
-            this.errors = error.response.data.errors;
+
+            // Only populate form field errors for 422 (validation) responses.
+            // Other status codes (401, 403, 419, 500) are handled by the
+            // global axios interceptor and should not overwrite form state.
+            if (_.get(error, 'response.status') === 422) {
+                this.errors = _.get(error, 'response.data.errors', {});
+            }
         }
     }
 });
