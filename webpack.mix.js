@@ -29,11 +29,17 @@ mix.options({ processCssUrls: false })
  | Leaflet Map Images
  |--------------------------------------------------------------------------
  |
- | Leaflet CSS references images/layers.png, images/layers-2x.png,
- | images/marker-icon.png etc. relative to the CSS file location.
- | Since our compiled CSS lives at public/css/app.css, these images
- | must be placed at public/css/images/.
+ | Leaflet needs its marker/layer images in TWO locations:
+ |
+ | 1. public/css/images/  — Leaflet CSS uses relative url(images/...)
+ |    references. Since compiled CSS lives at public/css/app.css,
+ |    the browser resolves these to public/css/images/.
+ |
+ | 2. public/images/      — Leaflet JS sets L.Icon.Default.imagePath
+ |    to the value of the `image-path` prop ({{ asset('images') }}).
+ |    Default markers loaded via JS look in this directory.
  |
  */
 
 mix.copy('node_modules/leaflet/dist/images', 'public/css/images');
+mix.copy('node_modules/leaflet/dist/images', 'public/images');
