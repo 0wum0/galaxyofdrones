@@ -18,6 +18,7 @@ export default Modal.extend({
                 id: undefined
             },
             data: {
+                resource_id: null,
                 username: ''
             }
         };
@@ -69,6 +70,12 @@ export default Modal.extend({
 
         changePlanet() {
             EventBus.$emit('change-planet', this.properties.id);
+        },
+
+        jumpToSurface() {
+            this.openAfterHidden(() => {
+                this.$router.push({ name: 'home' });
+            });
         },
 
         openMove(type) {

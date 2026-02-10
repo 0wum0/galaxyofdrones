@@ -1,5 +1,6 @@
 .container-app {
     background: url('../images/starmap-bg.png?v=#{$cache-buster}') center top no-repeat;
+    background-size: cover;
     height: var(--app-vh, 100vh);
     margin: 0 auto;
     max-height: 1080px;
@@ -10,6 +11,11 @@
     // On small screens, remove max-height so the map fills the visible viewport.
     @media (max-width: 1080px), (max-height: 1080px) {
         max-height: none;
+    }
+
+    // Ensure the app container fills the screen on mobile with no gaps.
+    @supports (height: 100dvh) {
+        height: 100dvh;
     }
 
     &-standalone {

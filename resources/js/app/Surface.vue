@@ -96,18 +96,30 @@ export default {
         // Pixi initialises without waiting for the next API response.
         // The Sidebar will still re-fetch and emit planet-updated; at
         // that point updatePixi() will refresh the sprites.
+        //
+        // We delay initialisation slightly (nextTick + rAF) so that the
+        // DOM has settled and the parent container has real dimensions.
+        // This is critical when transitioning from /starmap where the
+        // Bootstrap modal backdrop may still be animating out.
         // ---------------------------------------------------------------
         if (!this.stage && EventBus._lastPlanetData) {
             this.$nextTick(() => {
-                if (!this.stage) {
-                    this.planetUpdated(EventBus._lastPlanetData);
-                }
+                requestAnimationFrame(() => {
+                    if (!this.stage) {
+                        this.planetUpdated(EventBus._lastPlanetData);
+                    }
+                });
             });
         }
     },
 
     beforeDestroy() {
         EventBus.$off('planet-updated', this.planetUpdated);
+
+        if (this._deferTimer) {
+            clearInterval(this._deferTimer);
+            this._deferTimer = null;
+        }
 
         this.destroyPixi();
     },
@@ -117,6 +129,23 @@ export default {
             this.planet = planet;
 
             if (!this.stage && !this._loading) {
+                // If the viewport has zero dimensions (e.g. the modal
+                // backdrop is still covering the container), defer
+                // initialisation until it has real dimensions.
+                if (this.$viewport.width() < 2 || this.$viewport.height() < 2) {
+                    this._deferredInit = true;
+                    if (!this._deferTimer) {
+                        this._deferTimer = setInterval(() => {
+                            if (this.$viewport.width() >= 2 && this.$viewport.height() >= 2) {
+                                clearInterval(this._deferTimer);
+                                this._deferTimer = null;
+                                this._deferredInit = false;
+                                this.initPixi();
+                            }
+                        }, 100);
+                    }
+                    return;
+                }
                 this.initPixi();
             } else if (this.stage) {
                 this.updatePixi();
