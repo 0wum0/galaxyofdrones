@@ -20,9 +20,17 @@
                     {{ $subtitle }}
                 </h5>
             </div>
+
+            {{-- Show session-expired / CSRF error flash message --}}
+            @if (session('error'))
+                <div class="alert alert-warning m-3" role="alert">
+                    {{ session('error') }}
+                </div>
+            @endif
+
             @if ($count)
-                <form action="{{ route('start') }}" method="post">
-                    {{ csrf_field() }}
+                <form action="{{ route('start_store') }}" method="POST">
+                    @csrf
 
                     <div class="card-body text-center">
                         <span class="item planet-1"></span>
@@ -46,3 +54,7 @@
         </div>
     </section>
 @endsection
+
+@push('javascripts')
+    @include('partials.flash')
+@endpush
