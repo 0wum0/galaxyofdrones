@@ -20,6 +20,13 @@
         </div>
     @endif
 
+    <noscript>
+        <div class="alert alert-warning">
+            <strong>JavaScript disabled:</strong> The installer works best with JavaScript enabled.
+            Without it, form submission relies on POST which may have issues on some shared hosting.
+        </div>
+    </noscript>
+
     <div id="postWarning" style="display:none;" class="alert alert-warning">
         <strong>Note:</strong> Your hosting may have issues with form submissions (POST requests).
         The AJAX "Test Connection" button is more reliable. Click "Test Connection" first,
