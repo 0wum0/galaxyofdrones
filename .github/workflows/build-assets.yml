@@ -38,10 +38,12 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Node.js 20 LTS
+      - name: Setup Node.js 16
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Node 16 required — Laravel Mix 6 + PostCSS 8.2 are incompatible
+          # with Node 18+ (ERR_PACKAGE_PATH_NOT_EXPORTED on postcss/package.json)
+          node-version: 16
           cache: yarn
 
       - name: Install dependencies
