@@ -69,20 +69,23 @@
     <h2>Database Tools</h2>
 
     <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-        <form method="POST" action="{{ route('install.run_update', request()->only('token')) }}" style="display:inline;">
+        <form method="POST" action="{{ route('install.run_update') }}" style="display:inline;">
             @csrf
+            <input type="hidden" name="token" value="{{ request('token', '') }}">
             <input type="hidden" name="action" value="migrate">
             <button type="submit" class="btn btn-primary btn-sm">Run Migrations</button>
         </form>
 
-        <form method="POST" action="{{ route('install.run_update', request()->only('token')) }}" style="display:inline;">
+        <form method="POST" action="{{ route('install.run_update') }}" style="display:inline;">
             @csrf
+            <input type="hidden" name="token" value="{{ request('token', '') }}">
             <input type="hidden" name="action" value="seed">
             <button type="submit" class="btn btn-primary btn-sm">Run Seeders</button>
         </form>
 
-        <form method="POST" action="{{ route('install.run_update', request()->only('token')) }}" style="display:inline;">
+        <form method="POST" action="{{ route('install.run_update') }}" style="display:inline;">
             @csrf
+            <input type="hidden" name="token" value="{{ request('token', '') }}">
             <input type="hidden" name="action" value="passport">
             <button type="submit" class="btn btn-secondary btn-sm">Reinstall Passport</button>
         </form>
@@ -93,14 +96,16 @@
     <h2>Cache Tools</h2>
 
     <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-        <form method="POST" action="{{ route('install.run_update', request()->only('token')) }}" style="display:inline;">
+        <form method="POST" action="{{ route('install.run_update') }}" style="display:inline;">
             @csrf
+            <input type="hidden" name="token" value="{{ request('token', '') }}">
             <input type="hidden" name="action" value="cache">
             <button type="submit" class="btn btn-primary btn-sm">Clear All Caches</button>
         </form>
 
-        <form method="POST" action="{{ route('install.run_update', request()->only('token')) }}" style="display:inline;">
+        <form method="POST" action="{{ route('install.run_update') }}" style="display:inline;">
             @csrf
+            <input type="hidden" name="token" value="{{ request('token', '') }}">
             <input type="hidden" name="action" value="clear_sessions">
             <button type="submit" class="btn btn-warning btn-sm">Clear Sessions & Cache</button>
         </form>
@@ -110,8 +115,9 @@
 <div class="card">
     <h2>StarMap Tools</h2>
 
-    <form method="POST" action="{{ route('install.run_update', request()->only('token')) }}" style="margin-bottom: 16px;">
+    <form method="POST" action="{{ route('install.run_update') }}" style="margin-bottom: 16px;">
         @csrf
+        <input type="hidden" name="token" value="{{ request('token', '') }}">
         <input type="hidden" name="action" value="generate_starmap">
         <div style="display: flex; gap: 12px; align-items: end;">
             <div class="form-group" style="margin-bottom: 0; flex: 1;">
@@ -127,8 +133,9 @@
 
     <hr style="border-color: #1e3a5f; margin: 16px 0;">
 
-    <form method="POST" action="{{ route('install.run_update', request()->only('token')) }}">
+    <form method="POST" action="{{ route('install.run_update') }}">
         @csrf
+        <input type="hidden" name="token" value="{{ request('token', '') }}">
         <input type="hidden" name="action" value="expand_starmap">
         <div style="display: flex; gap: 12px; align-items: end;">
             <div class="form-group" style="margin-bottom: 0; flex: 1;">

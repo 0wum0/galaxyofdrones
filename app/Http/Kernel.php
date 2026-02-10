@@ -45,10 +45,13 @@ class Kernel extends HttpKernel
         //   - VerifyCsrfToken (installer routes are token-protected by controller)
         //   - CreateFreshApiToken / SafePassportToken (Passport may not be installed yet)
         //   - CheckInstalled (installer handles this itself)
+        // Uses SafeEncryptCookies instead of EncryptCookies because during
+        // fresh install APP_KEY may not exist yet — the standard EncryptCookies
+        // throws MissingAppKeyException without a valid key.
         // Sessions are started so old() / withErrors() work, but the installer
         // does NOT rely on sessions for flow state (uses InstallerState file).
         'installer' => [
-            \App\Http\Middleware\EncryptCookies::class,
+            \App\Http\Middleware\SafeEncryptCookies::class,
             \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
             \Illuminate\Session\Middleware\StartSession::class,
             \Illuminate\View\Middleware\ShareErrorsFromSession::class,
