@@ -10,7 +10,7 @@ class SettingsTableSeeder extends Seeder
     /**
      * Run the database seed.
      *
-     * Idempotent: uses firstOrCreate so re-running (updater) won't duplicate rows.
+     * Idempotent: uses firstOrCreate on unique 'key' column.
      */
     public function run()
     {
