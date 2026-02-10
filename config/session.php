@@ -155,10 +155,16 @@ return [
     |
     */
 
-    // Sanitize SESSION_DOMAIN: must be a domain string (e.g. ".makeit.uno"),
-    // NEVER a URL. A common misconfiguration on shared hosting is setting
-    // SESSION_DOMAIN to "https://god.makeit.uno" instead of null or ".makeit.uno".
-    // If a URL is detected, extract just the host part; if still invalid, use null.
+    // SESSION_DOMAIN must be a bare domain string (e.g. ".makeit.uno"),
+    // NEVER a URL.  A common misconfiguration on shared hosting is setting
+    // SESSION_DOMAIN to "https://god.makeit.uno" instead of ".makeit.uno".
+    //
+    // Recommended values for Hostinger subdomain deployments:
+    //   SESSION_DOMAIN=.makeit.uno          – cookie shared across all *.makeit.uno
+    //   SESSION_DOMAIN=god.makeit.uno       – cookie only for god.makeit.uno
+    //   SESSION_DOMAIN=null  (or unset)     – auto-detect from request host
+    //
+    // The closure below sanitizes bad values (strips scheme, port, path).
     'domain' => (function () {
         $raw = env('SESSION_DOMAIN');
 
@@ -199,8 +205,19 @@ return [
     // On shared hosting behind a reverse proxy (Hostinger, etc.) the app may
     // not see HTTPS directly. Setting this to null lets Laravel auto-detect
     // based on the current request scheme (which TrustProxies makes reliable).
-    // Using env('... , null') so that .env value "null" → PHP null → auto-detect.
-    'secure' => (($val = env('SESSION_SECURE_COOKIE')) === 'null' || $val === null) ? null : (bool) $val,
+    //
+    // WARNING: env() returns strings, so "false" becomes (bool)true!
+    // We use filter_var() for correct boolean parsing:
+    //   "true"/"1"  → true    (cookie only sent over HTTPS)
+    //   "false"/"0" → false   (cookie sent over HTTP too — less secure)
+    //   "null"/null  → null   (auto-detect from request scheme)
+    'secure' => (function () {
+        $val = env('SESSION_SECURE_COOKIE');
+        if ($val === null || $val === '' || $val === 'null') {
+            return null; // auto-detect
+        }
+        return filter_var($val, FILTER_VALIDATE_BOOLEAN);
+    })(),
 
     /*
     |--------------------------------------------------------------------------
