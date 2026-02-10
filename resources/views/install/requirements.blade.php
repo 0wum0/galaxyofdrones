@@ -1,5 +1,7 @@
 @extends('install.layout', ['step' => 1])
 
+@section('page_title', 'System Check')
+
 @section('content')
 <div class="card">
     <h2>Step 1: System Requirements</h2>

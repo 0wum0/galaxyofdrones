@@ -1,8 +1,10 @@
-@extends('install.layout', ['step' => 4])
+@extends('install.layout', ['step' => 5])
+
+@section('page_title', 'Admin Account')
 
 @section('content')
 <div class="card">
-    <h2>Step 4: Create Admin Account</h2>
+    <h2>Step 5: Create Admin Account</h2>
     <p style="color: #78909c; margin-bottom: 20px;">
         Create the administrator account for managing the game.
     </p>

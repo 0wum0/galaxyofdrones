@@ -5,6 +5,7 @@
 /public/storage
 /storage/*.key
 /storage/installed.lock
+/storage/install.unlock
 /vendor
 .env
 .env.backup

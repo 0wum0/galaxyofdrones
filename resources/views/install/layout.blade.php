@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>Galaxy of Drones - Installer</title>
+    <title>Galaxy of Drones - @yield('page_title', 'Installer')</title>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -43,12 +43,12 @@
         }
         .header p { color: #8899aa; margin-top: 8px; }
         .steps {
-            display: flex; justify-content: center; gap: 8px; margin-bottom: 32px; flex-wrap: wrap;
+            display: flex; justify-content: center; gap: 6px; margin-bottom: 32px; flex-wrap: wrap;
         }
         .step-dot {
-            width: 36px; height: 36px; border-radius: 50%;
+            width: 32px; height: 32px; border-radius: 50%;
             display: flex; align-items: center; justify-content: center;
-            font-size: 14px; font-weight: 600;
+            font-size: 12px; font-weight: 600;
             background: #1a2332; border: 2px solid #2a3a4a; color: #556;
             transition: all 0.3s;
         }
@@ -75,6 +75,7 @@
         .badge-ok { background: #1b5e20; color: #81c784; }
         .badge-fail { background: #b71c1c; color: #ef9a9a; }
         .badge-info { background: #0d47a1; color: #90caf9; }
+        .badge-warn { background: #4a3500; color: #ffb74d; }
         .form-group { margin-bottom: 20px; }
         .form-group label {
             display: block; margin-bottom: 6px; color: #90a4ae; font-size: 14px; font-weight: 500;
@@ -96,8 +97,13 @@
         .btn-success:hover { background: #388e3c; }
         .btn-secondary { background: #37474f; color: #cfd8dc; }
         .btn-secondary:hover { background: #455a64; }
+        .btn-danger { background: #b71c1c; color: #fff; }
+        .btn-danger:hover { background: #c62828; }
+        .btn-warning { background: #e65100; color: #fff; }
+        .btn-warning:hover { background: #ef6c00; }
         .btn-block { display: block; width: 100%; }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-sm { padding: 8px 16px; font-size: 13px; }
         .actions { display: flex; justify-content: space-between; gap: 12px; margin-top: 24px; }
         .alert {
             padding: 14px 18px; border-radius: 8px; margin-bottom: 16px; font-size: 14px;
@@ -105,6 +111,7 @@
         .alert-danger { background: rgba(183,28,28,0.2); border: 1px solid #c62828; color: #ef9a9a; }
         .alert-success { background: rgba(46,125,50,0.2); border: 1px solid #388e3c; color: #81c784; }
         .alert-info { background: rgba(13,71,161,0.2); border: 1px solid #1565c0; color: #90caf9; }
+        .alert-warning { background: rgba(230,81,0,0.2); border: 1px solid #e65100; color: #ffb74d; }
         .log-output {
             background: #0d1117; border: 1px solid #1e3a5f; border-radius: 8px;
             padding: 16px; font-family: 'Courier New', monospace; font-size: 13px;
@@ -112,6 +119,8 @@
         }
         .text-center { text-align: center; }
         .mt-2 { margin-top: 16px; }
+        .mt-3 { margin-top: 24px; }
+        .mb-2 { margin-bottom: 16px; }
         .spinner {
             display: inline-block; width: 16px; height: 16px;
             border: 2px solid #42a5f5; border-top-color: transparent;
@@ -119,6 +128,16 @@
             vertical-align: middle; margin-right: 8px;
         }
         @@keyframes spin { to { transform: rotate(360deg); } }
+        .stat-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: #0d1b2a; border: 1px solid #1e3a5f; border-radius: 8px;
+            padding: 16px; text-align: center;
+        }
+        .stat-card .value { font-size: 24px; font-weight: 700; color: #64b5f6; }
+        .stat-card .label { font-size: 11px; color: #8899aa; margin-top: 4px; }
     </style>
 </head>
 <body>
@@ -126,16 +145,18 @@
     <div class="container">
         <div class="header">
             <h1>Galaxy of Drones</h1>
-            <p>Installation Wizard</p>
+            <p>@yield('header_subtitle', 'Installation Wizard')</p>
         </div>
 
-        <div class="steps">
-            <div class="step-dot {{ $step >= 1 ? ($step > 1 ? 'done' : 'active') : '' }}">1</div>
-            <div class="step-dot {{ $step >= 2 ? ($step > 2 ? 'done' : 'active') : '' }}">2</div>
-            <div class="step-dot {{ $step >= 3 ? ($step > 3 ? 'done' : 'active') : '' }}">3</div>
-            <div class="step-dot {{ $step >= 4 ? ($step > 4 ? 'done' : 'active') : '' }}">4</div>
-            <div class="step-dot {{ $step >= 5 ? ($step > 5 ? 'done' : 'active') : '' }}">5</div>
-        </div>
+        @hasSection('steps')
+            @yield('steps')
+        @else
+            <div class="steps">
+                @for ($i = 1; $i <= 7; $i++)
+                    <div class="step-dot {{ ($step ?? 0) >= $i ? (($step ?? 0) > $i ? 'done' : 'active') : '' }}">{{ $i }}</div>
+                @endfor
+            </div>
+        @endif
 
         @yield('content')
     </div>

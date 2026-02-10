@@ -1,5 +1,7 @@
 @extends('install.layout', ['step' => 3])
 
+@section('page_title', 'Migration')
+
 @section('content')
 <div class="card">
     <h2>Step 3: Database Setup & Configuration</h2>
@@ -27,9 +29,9 @@
             <a href="{{ route('install.migrate') }}" class="btn btn-primary">Retry</a>
         @else
             <div class="alert alert-success" style="flex: 1;">
-                Database initialized successfully! .env written, APP_KEY generated.
+                Database initialized successfully! .env written, APP_KEY generated, seeders ran.
             </div>
-            <a href="{{ route('install.admin') }}" class="btn btn-primary">Next: Create Admin &rarr;</a>
+            <a href="{{ route('install.starmap') }}" class="btn btn-primary">Next: Generate StarMap &rarr;</a>
         @endif
     </div>
 </div>

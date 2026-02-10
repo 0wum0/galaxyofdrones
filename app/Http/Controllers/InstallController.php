@@ -2,29 +2,40 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\GameSetting;
+use App\Models\Planet;
+use App\Models\Star;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
 class InstallController extends Controller
 {
+    // ─── INSTALLER STEPS ─────────────────────────────────
+
     /**
      * Step 1: System requirements check.
      */
-    public function index()
+    public function index(Request $request)
     {
-        if ($this->isInstalled()) {
+        if ($this->isInstalled() && !$this->isUnlocked($request)) {
             return redirect('/')->with('message', 'Application is already installed.');
+        }
+
+        // If installed, show updater mode
+        if ($this->isInstalled()) {
+            return $this->updater($request);
         }
 
         $requirements = $this->checkRequirements();
         $permissions = $this->checkPermissions();
-        $allPassed = ! in_array(false, array_column($requirements, 'passed'))
-                  && ! in_array(false, array_column($permissions, 'passed'));
+        $allPassed = !in_array(false, array_column($requirements, 'passed'))
+                  && !in_array(false, array_column($permissions, 'passed'));
 
         return view('install.requirements', compact('requirements', 'permissions', 'allPassed'));
     }
@@ -32,14 +43,12 @@ class InstallController extends Controller
     /**
      * Step 2: Database configuration form.
      */
-    public function database()
+    public function database(Request $request)
     {
-        if ($this->isInstalled()) {
+        if ($this->isInstalled() && !$this->isUnlocked($request)) {
             return redirect('/');
         }
 
-        // Read current .env values as defaults (already stripped by Dotenv,
-        // but trimQuotes() catches edge cases when the file was hand-edited).
         $defaults = [
             'db_host'     => trimQuotes(env('DB_HOST', 'localhost')),
             'db_port'     => trimQuotes(env('DB_PORT', '3306')),
@@ -53,18 +62,12 @@ class InstallController extends Controller
 
     /**
      * Step 2b: Test database connection.
-     *
-     * - AJAX / JSON requests: returns JSON (used by the "Test Connection" button).
-     * - Regular form POST: validates & tests the connection, then delegates to
-     *   environment() which writes .env and redirects to the next step.
-     *   This prevents the installer from getting stuck when the form posts here
-     *   instead of /install/environment.
      */
     public function testDatabase(Request $request)
     {
         $wantsJson = $request->expectsJson() || $request->ajax();
 
-        if ($this->isInstalled()) {
+        if ($this->isInstalled() && !$this->isUnlocked($request)) {
             if ($wantsJson) {
                 return response()->json(['success' => false, 'message' => 'Already installed.']);
             }
@@ -86,7 +89,6 @@ class InstallController extends Controller
             return redirect()->back()->withErrors($validator)->withInput();
         }
 
-        // Sanitize: strip surrounding quotes that may have been pasted in
         $host     = trimQuotes($request->db_host);
         $port     = trimQuotes($request->db_port);
         $database = trimQuotes($request->db_database);
@@ -112,22 +114,19 @@ class InstallController extends Controller
                 ->withInput();
         }
 
-        // --- AJAX: return JSON result ---
         if ($wantsJson) {
             return response()->json(['success' => true, 'message' => 'Database connection successful!']);
         }
 
-        // --- Form submission: connection OK → delegate to environment() to
-        //     write .env and proceed to the next installer step. ---
         return $this->environment($request);
     }
 
     /**
-     * Step 3: Save database config, create .env, generate key, run migrations.
+     * Step 3: Save database config, create .env, generate key.
      */
     public function environment(Request $request)
     {
-        if ($this->isInstalled()) {
+        if ($this->isInstalled() && !$this->isUnlocked($request)) {
             return redirect('/');
         }
 
@@ -143,14 +142,12 @@ class InstallController extends Controller
             return redirect()->route('install.database')->withErrors($validator)->withInput();
         }
 
-        // Sanitize: strip surrounding quotes from all inputs
         $dbHost     = trimQuotes($request->db_host);
         $dbPort     = trimQuotes($request->db_port);
         $dbDatabase = trimQuotes($request->db_database);
         $dbUsername  = trimQuotes($request->db_username);
         $dbPassword  = trimQuotes($request->db_password ?? '');
 
-        // Test connection with sanitized values
         try {
             new \PDO(
                 "mysql:host={$dbHost};port={$dbPort};dbname={$dbDatabase}",
@@ -164,21 +161,12 @@ class InstallController extends Controller
                 ->withInput();
         }
 
-        // Generate APP_KEY (plain base64:... without quotes)
         $appKey = 'base64:' . base64_encode(random_bytes(32));
-
-        // Detect APP_URL
         $appUrl = $request->getSchemeAndHttpHost();
-
-        // Generate CRON_TOKEN
         $cronToken = Str::random(32);
-
-        // Detect session domain: for subdomains (e.g. god.makeit.uno) use
-        // the root domain (.makeit.uno) so cookies work across subdomains.
-        // For bare domains or localhost, use null (auto-detect).
+        $installToken = Str::random(32);
         $sessionDomain = $this->detectSessionDomain($request->getHost());
 
-        // Write .env file – using sanitized (unquoted) values
         $envContent = $this->buildEnvContent([
             'APP_NAME' => 'Galaxy of Drones Online',
             'APP_ENV' => 'production',
@@ -212,26 +200,24 @@ class InstallController extends Controller
             'MAIL_FROM_ADDRESS' => 'noreply@' . $request->getHost(),
             'MAIL_FROM_NAME' => '${APP_NAME}',
             'CRON_TOKEN' => $cronToken,
+            'INSTALL_TOKEN' => $installToken,
         ]);
 
         $envPath = base_path('.env');
         file_put_contents($envPath, $envContent);
         @chmod($envPath, 0600);
 
-        // Clear ALL caches so the new .env values take effect immediately.
-        // This is critical on shared hosting where stale config caches
-        // cause 419 CSRF errors (session settings mismatch).
         foreach (['config:clear', 'cache:clear', 'view:clear', 'route:clear'] as $cmd) {
             try {
                 Artisan::call($cmd);
             } catch (\Exception $e) {
-                // Ignore – caches may not exist on first install
+                // Ignore
             }
         }
 
-        // Store data in session for next steps
         $request->session()->put('install_env_written', true);
         $request->session()->put('install_cron_token', $cronToken);
+        $request->session()->put('install_token', $installToken);
 
         return redirect()->route('install.migrate');
     }
@@ -241,11 +227,11 @@ class InstallController extends Controller
      */
     public function migrate(Request $request)
     {
-        if ($this->isInstalled()) {
+        if ($this->isInstalled() && !$this->isUnlocked($request)) {
             return redirect('/');
         }
 
-        if (! $request->session()->get('install_env_written')) {
+        if (!$request->session()->get('install_env_written')) {
             return redirect()->route('install.database');
         }
 
@@ -253,17 +239,14 @@ class InstallController extends Controller
         $errors = [];
 
         try {
-            // Clear config cache to pick up new .env
             Artisan::call('config:clear');
             $results[] = 'Configuration cache cleared.';
 
-            // Re-read the new .env
             app()->bootstrapWith([
                 \Illuminate\Foundation\Bootstrap\LoadEnvironmentVariables::class,
                 \Illuminate\Foundation\Bootstrap\LoadConfiguration::class,
             ]);
 
-            // Reconfigure database with new credentials
             config([
                 'database.connections.mysql.host' => env('DB_HOST'),
                 'database.connections.mysql.port' => env('DB_PORT'),
@@ -274,17 +257,14 @@ class InstallController extends Controller
             DB::purge('mysql');
             DB::reconnect('mysql');
 
-            // Run migrations
             Artisan::call('migrate', ['--force' => true]);
             $results[] = 'Database migrations completed.';
             $results[] = trim(Artisan::output());
 
-            // Run seeders
             Artisan::call('db:seed', ['--force' => true]);
             $results[] = 'Database seeding completed.';
             $results[] = trim(Artisan::output());
 
-            // Create passport keys
             try {
                 Artisan::call('passport:install', ['--force' => true]);
                 $results[] = 'Passport keys installed.';
@@ -292,7 +272,6 @@ class InstallController extends Controller
                 $results[] = 'Passport setup skipped: ' . $this->sanitizeError($e->getMessage());
             }
 
-            // Create storage link
             try {
                 Artisan::call('storage:link');
                 $results[] = 'Storage link created.';
@@ -313,15 +292,107 @@ class InstallController extends Controller
     }
 
     /**
-     * Step 6: Admin user creation form.
+     * Step 6: StarMap generation.
      */
-    public function admin(Request $request)
+    public function starmap(Request $request)
     {
-        if ($this->isInstalled()) {
+        if ($this->isInstalled() && !$this->isUnlocked($request)) {
             return redirect('/');
         }
 
-        if (! $request->session()->get('install_migrated')) {
+        if (!$request->session()->get('install_migrated')) {
+            return redirect()->route('install.database');
+        }
+
+        $this->reconnectDatabase();
+
+        $starCount = Star::count();
+        $planetCount = Planet::count();
+        $starmapExists = $starCount > 0 && $planetCount > 0;
+        $starterCount = 0;
+
+        if ($starmapExists) {
+            try {
+                $starterCount = Planet::starter()->count();
+            } catch (\Exception $e) {
+                $starterCount = 0;
+            }
+        }
+
+        return view('install.starmap', compact('starmapExists', 'starCount', 'planetCount', 'starterCount'));
+    }
+
+    /**
+     * Step 6b: Generate the starmap.
+     */
+    public function generateStarmap(Request $request)
+    {
+        if ($this->isInstalled() && !$this->isUnlocked($request)) {
+            return redirect('/');
+        }
+
+        $this->reconnectDatabase();
+
+        $results = [];
+        $errors = [];
+
+        try {
+            set_time_limit(300); // Allow 5 minutes
+
+            $clear = $request->input('clear', false);
+            $stars = (int) $request->input('stars', 2000);
+
+            // Clamp values for shared hosting safety
+            $stars = max(100, min($stars, 5000));
+
+            $args = [
+                '--stars' => $stars,
+                '--planets-per-star' => 3,
+                '--shared-hosting' => true,
+            ];
+
+            if ($clear) {
+                $args['--clear'] = true;
+            }
+
+            Artisan::call('game:generate-starmap', $args);
+            $output = trim(Artisan::output());
+            $results[] = $output;
+
+            $starCount = Star::count();
+            $planetCount = Planet::count();
+            $starterCount = Planet::starter()->count();
+
+            $results[] = "Stars: {$starCount}, Planets: {$planetCount}, Starter slots: {$starterCount}";
+
+        } catch (\Exception $e) {
+            $errors[] = 'StarMap generation error: ' . $this->sanitizeError($e->getMessage());
+            Log::error('StarMap generation failed', ['error' => $e->getMessage()]);
+        }
+
+        $request->session()->put('install_starmap_done', true);
+
+        $starmapExists = Star::count() > 0;
+        $starCount = Star::count();
+        $planetCount = Planet::count();
+        $starterCount = 0;
+        try {
+            $starterCount = Planet::starter()->count();
+        } catch (\Exception $e) {}
+
+        return view('install.starmap', compact('starmapExists', 'starCount', 'planetCount', 'starterCount', 'results', 'errors'));
+    }
+
+    /**
+     * Step 7: Admin user creation form.
+     */
+    public function admin(Request $request)
+    {
+        if ($this->isInstalled() && !$this->isUnlocked($request)) {
+            return redirect('/');
+        }
+
+        if (!$request->session()->get('install_migrated')) {
             return redirect()->route('install.database');
         }
 
@@ -329,16 +400,15 @@ class InstallController extends Controller
     }
 
     /**
-     * Step 6b: Create admin user.
+     * Step 7b: Create admin user.
      */
     public function createAdmin(Request $request)
     {
-        if ($this->isInstalled()) {
+        if ($this->isInstalled() && !$this->isUnlocked($request)) {
             return redirect('/');
         }
 
         try {
-            // Reconfigure database before validation (unique rules need DB)
             $this->reconnectDatabase();
         } catch (\Exception $e) {
             return redirect()->route('install.admin')
@@ -357,7 +427,7 @@ class InstallController extends Controller
         }
 
         try {
-            $user = User::create([
+            User::create([
                 'username' => $request->username,
                 'email' => $request->email,
                 'email_verified_at' => now(),
@@ -377,24 +447,22 @@ class InstallController extends Controller
     }
 
     /**
-     * Step 7: Installation complete.
+     * Step 8: Installation complete.
      */
     public function complete(Request $request)
     {
-        if ($this->isInstalled()) {
+        if ($this->isInstalled() && !$this->isUnlocked($request)) {
             return redirect('/');
         }
 
-        // Prevent skipping steps: admin must have been created
-        if (! $request->session()->get('install_admin_created')) {
+        if (!$request->session()->get('install_admin_created')) {
             return redirect()->route('install.admin');
         }
 
-        // Read CRON_TOKEN BEFORE config:cache (env() returns null after caching)
-        // trimQuotes() ensures no stray quotes leak into the displayed value.
         $cronToken = trimQuotes(config('app.cron_token') ?: env('CRON_TOKEN', ''));
+        $installToken = trimQuotes(config('app.install_token') ?: env('INSTALL_TOKEN', ''));
 
-        // Create lock file FIRST so that post_autoload.php sees it
+        // Create lock file
         $lockFile = storage_path('installed.lock');
         file_put_contents($lockFile, json_encode([
             'installed_at' => now()->toIso8601String(),
@@ -402,14 +470,10 @@ class InstallController extends Controller
             'laravel_version' => app()->version(),
         ]));
 
-        // ---------------------------------------------------------------
-        // Post-install: clear ALL stale caches and run package:discover.
-        // During the initial "composer install" these were skipped because
-        // .env / installed.lock did not exist yet. Now we catch up.
-        //
-        // cache:clear is critical: on shared hosting (Hostinger) a stale
-        // application cache can cause 419 CSRF errors after installation.
-        // ---------------------------------------------------------------
+        // Remove unlock file if present
+        @unlink(storage_path('install.unlock'));
+
+        // Post-install cleanup
         $postInstallErrors = [];
 
         foreach (['config:clear', 'cache:clear', 'route:clear', 'view:clear'] as $clearCmd) {
@@ -426,8 +490,6 @@ class InstallController extends Controller
             $postInstallErrors[] = 'package:discover – ' . $this->sanitizeError($e->getMessage());
         }
 
-        // Rebuild caches for performance
-        // Note: route:cache is skipped because Closure-based routes (console.php) are not cacheable
         try {
             Artisan::call('config:cache');
             Artisan::call('view:cache');
@@ -435,44 +497,203 @@ class InstallController extends Controller
             $postInstallErrors[] = 'cache rebuild – ' . $this->sanitizeError($e->getMessage());
         }
 
-        if (! empty($postInstallErrors)) {
-            \Illuminate\Support\Facades\Log::warning('Post-install commands had issues', $postInstallErrors);
+        if (!empty($postInstallErrors)) {
+            Log::warning('Post-install commands had issues', $postInstallErrors);
         }
 
-        // Clear install session data
-        $request->session()->forget(['install_env_written', 'install_migrated', 'install_admin_created', 'install_cron_token']);
+        $request->session()->forget([
+            'install_env_written', 'install_migrated', 'install_admin_created',
+            'install_cron_token', 'install_token', 'install_starmap_done',
+        ]);
 
-        return view('install.complete', compact('cronToken'));
+        return view('install.complete', compact('cronToken', 'installToken'));
+    }
+
+    // ─── UPDATER MODE ────────────────────────────────────
+
+    /**
+     * Show updater/repair tools (when already installed + unlocked).
+     */
+    public function updater(Request $request)
+    {
+        $this->reconnectDatabase();
+
+        $stats = [
+            'stars' => Star::count(),
+            'planets' => Planet::count(),
+            'users' => User::count(),
+            'starter_planets' => 0,
+        ];
+
+        try {
+            $stats['starter_planets'] = Planet::starter()->count();
+        } catch (\Exception $e) {}
+
+        $starmapGenerated = false;
+        try {
+            $starmapGenerated = GameSetting::getValue('starmap_generated', false);
+        } catch (\Exception $e) {}
+
+        return view('install.updater', compact('stats', 'starmapGenerated'));
     }
 
     /**
-     * Check PHP requirements.
+     * Run updater action.
      */
+    public function runUpdate(Request $request)
+    {
+        if (!$this->isInstalled() || !$this->isUnlocked($request)) {
+            return redirect()->route('install.index');
+        }
+
+        $this->reconnectDatabase();
+
+        $action = $request->input('action');
+        $results = [];
+        $errors = [];
+
+        try {
+            switch ($action) {
+                case 'migrate':
+                    Artisan::call('migrate', ['--force' => true]);
+                    $results[] = 'Migrations completed: ' . trim(Artisan::output());
+                    break;
+
+                case 'seed':
+                    Artisan::call('db:seed', ['--force' => true]);
+                    $results[] = 'Seeders completed: ' . trim(Artisan::output());
+                    break;
+
+                case 'cache':
+                    foreach (['config:clear', 'cache:clear', 'route:clear', 'view:clear'] as $cmd) {
+                        Artisan::call($cmd);
+                    }
+                    Artisan::call('config:cache');
+                    Artisan::call('view:cache');
+                    $results[] = 'All caches cleared and rebuilt.';
+                    break;
+
+                case 'clear_sessions':
+                    $sessDir = storage_path('framework/sessions');
+                    if (is_dir($sessDir)) {
+                        $files = glob($sessDir . '/*');
+                        foreach ($files as $file) {
+                            if (is_file($file)) {
+                                @unlink($file);
+                            }
+                        }
+                    }
+                    try {
+                        Artisan::call('cache:clear');
+                    } catch (\Exception $e) {}
+                    $results[] = 'Sessions and cache cleared.';
+                    break;
+
+                case 'generate_starmap':
+                    set_time_limit(300);
+                    $stars = max(100, min((int) $request->input('stars', 2000), 5000));
+                    Artisan::call('game:generate-starmap', [
+                        '--stars' => $stars,
+                        '--planets-per-star' => 3,
+                        '--clear' => true,
+                        '--shared-hosting' => true,
+                    ]);
+                    $results[] = trim(Artisan::output());
+                    break;
+
+                case 'expand_starmap':
+                    set_time_limit(300);
+                    $extraStars = max(100, min((int) $request->input('stars', 500), 2000));
+                    Artisan::call('game:generate-starmap', [
+                        '--stars' => $extraStars,
+                        '--planets-per-star' => 3,
+                        '--shared-hosting' => true,
+                    ]);
+                    $results[] = trim(Artisan::output());
+                    break;
+
+                case 'passport':
+                    Artisan::call('passport:install', ['--force' => true]);
+                    $results[] = 'Passport keys reinstalled.';
+                    break;
+
+                default:
+                    $errors[] = 'Unknown action: ' . $action;
+            }
+        } catch (\Exception $e) {
+            $errors[] = $action . ' failed: ' . $this->sanitizeError($e->getMessage());
+            Log::error("Updater action '{$action}' failed", ['error' => $e->getMessage()]);
+        }
+
+        return redirect()->route('install.index', $request->only('token'))
+            ->with('updater_results', $results)
+            ->with('updater_errors', $errors);
+    }
+
+    // ─── LOCK / UNLOCK ───────────────────────────────────
+
+    /**
+     * Check if the installer is unlocked.
+     *
+     * The installer is accessible when:
+     * (a) App is NOT installed (no installed.lock)
+     * (b) storage/install.unlock file exists
+     * (c) Query token matches INSTALL_TOKEN or CRON_TOKEN
+     */
+    protected function isUnlocked(Request $request): bool
+    {
+        // Not installed = always accessible
+        if (!$this->isInstalled()) {
+            return true;
+        }
+
+        // Check unlock file
+        if (file_exists(storage_path('install.unlock'))) {
+            return true;
+        }
+
+        // Check token
+        $token = $request->query('token', '');
+        if (!empty($token)) {
+            $installToken = config('app.install_token') ?: env('INSTALL_TOKEN', '');
+            $cronToken = config('app.cron_token') ?: env('CRON_TOKEN', '');
+
+            if (!empty($installToken) && hash_equals($installToken, $token)) {
+                return true;
+            }
+            if (!empty($cronToken) && hash_equals($cronToken, $token)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if application is installed.
+     */
+    protected function isInstalled(): bool
+    {
+        return file_exists(storage_path('installed.lock'));
+    }
+
+    // ─── HELPERS ─────────────────────────────────────────
+
     protected function checkRequirements(): array
     {
         $requirements = [];
 
-        // PHP version
         $requirements[] = [
             'name' => 'PHP Version >= 8.1',
             'current' => PHP_VERSION,
             'passed' => version_compare(PHP_VERSION, '8.1.0', '>='),
         ];
 
-        // Required extensions
         $extensions = [
-            'pdo' => 'PDO',
-            'pdo_mysql' => 'PDO MySQL',
-            'mbstring' => 'Mbstring',
-            'openssl' => 'OpenSSL',
-            'tokenizer' => 'Tokenizer',
-            'ctype' => 'Ctype',
-            'json' => 'JSON',
-            'fileinfo' => 'Fileinfo',
-            'xml' => 'XML',
-            'curl' => 'cURL',
-            'dom' => 'DOM',
-            'bcmath' => 'BCMath',
+            'pdo' => 'PDO', 'pdo_mysql' => 'PDO MySQL', 'mbstring' => 'Mbstring',
+            'openssl' => 'OpenSSL', 'tokenizer' => 'Tokenizer', 'ctype' => 'Ctype',
+            'json' => 'JSON', 'fileinfo' => 'Fileinfo', 'xml' => 'XML',
+            'curl' => 'cURL', 'dom' => 'DOM', 'bcmath' => 'BCMath',
         ];
 
         foreach ($extensions as $ext => $label) {
@@ -483,19 +704,15 @@ class InstallController extends Controller
             ];
         }
 
-        // Optional extensions
         $requirements[] = [
-            'name' => 'PHP Extension: Imagick (optional, for starmap)',
+            'name' => 'PHP Extension: Imagick (optional, for starmap tiles)',
             'current' => extension_loaded('imagick') ? 'Installed' : 'Not installed',
-            'passed' => true, // Optional, always passes
+            'passed' => true,
         ];
 
         return $requirements;
     }
 
-    /**
-     * Check directory permissions.
-     */
     protected function checkPermissions(): array
     {
         $dirs = [
@@ -512,6 +729,11 @@ class InstallController extends Controller
         $permissions = [];
 
         foreach ($dirs as $path => $label) {
+            // Try to create missing dirs
+            if (!is_dir($path)) {
+                @mkdir($path, 0775, true);
+            }
+
             $writable = is_dir($path) && is_writable($path);
             $permissions[] = [
                 'name' => $label,
@@ -520,8 +742,7 @@ class InstallController extends Controller
             ];
         }
 
-        // Explicit session-writability check: attempt to create and delete a temp file
-        // in the sessions directory to verify the file-session driver will work.
+        // Session write test
         $sessDir = storage_path('framework/sessions');
         $sessionWritable = false;
         $sessionStatus = 'Not writable';
@@ -539,8 +760,8 @@ class InstallController extends Controller
             } catch (\Exception $e) {
                 $sessionStatus = 'Write test failed: ' . $e->getMessage();
             }
-        } elseif (! is_dir($sessDir)) {
-            $sessionStatus = 'Directory missing – create it with: mkdir -p storage/framework/sessions';
+        } elseif (!is_dir($sessDir)) {
+            $sessionStatus = 'Directory missing';
         }
 
         $permissions[] = [
@@ -549,35 +770,25 @@ class InstallController extends Controller
             'passed' => $sessionWritable,
         ];
 
+        // .env writable check
+        $envPath = base_path('.env');
+        $envDir = base_path();
+        $envWritable = (file_exists($envPath) && is_writable($envPath)) || is_writable($envDir);
+        $permissions[] = [
+            'name' => '.env file writable',
+            'current' => $envWritable ? 'Writable' : 'Not writable',
+            'passed' => $envWritable,
+        ];
+
         return $permissions;
     }
 
-    /**
-     * Check if application is installed.
-     */
-    protected function isInstalled(): bool
-    {
-        return file_exists(storage_path('installed.lock'));
-    }
-
-    /**
-     * Build .env file content.
-     *
-     * Quoting rules:
-     *  - Quote ONLY when the value contains characters that break .env parsing:
-     *    spaces, #, =, $, !, \, `, or literal double-quotes.
-     *  - APP_KEY in base64:... format is NEVER quoted (safe as-is).
-     *  - DB_PASSWORD and other values with special chars get double-quoted,
-     *    with internal double-quotes and backslashes escaped.
-     *  - Empty values are written without quotes: KEY=
-     */
     protected function buildEnvContent(array $values): string
     {
         $lines = [];
         $lastGroup = '';
 
         foreach ($values as $key => $value) {
-            // Ensure the raw value has no surrounding quotes from previous writes
             $value = trimQuotes($value);
 
             $group = explode('_', $key)[0];
@@ -586,21 +797,16 @@ class InstallController extends Controller
             }
             $lastGroup = $group;
 
-            // Empty values: write as KEY= (no quotes)
             if ($value === '' || $value === null) {
                 $lines[] = "{$key}=";
                 continue;
             }
 
-            // APP_KEY with base64: prefix is safe unquoted
             if ($key === 'APP_KEY' && str_starts_with($value, 'base64:')) {
                 $lines[] = "{$key}={$value}";
                 continue;
             }
 
-            // Check if quoting is needed: spaces, #, ", $, !, \, `, =
-            // These characters can break .env parsing or cause variable
-            // interpolation issues in some parsers.
             $needsQuoting = $value !== ''
                 && (str_contains($value, ' ')
                     || str_contains($value, '#')
@@ -611,10 +817,8 @@ class InstallController extends Controller
                     || str_contains($value, '!'));
 
             if ($needsQuoting) {
-                // Escape backslashes first, then double quotes
                 $escaped = str_replace('\\', '\\\\', $value);
                 $escaped = str_replace('"', '\\"', $escaped);
-                // Escape $ to prevent variable interpolation
                 $escaped = str_replace('$', '\\$', $escaped);
                 $value = '"' . $escaped . '"';
             }
@@ -625,56 +829,41 @@ class InstallController extends Controller
         return implode("\n", $lines) . "\n";
     }
 
-    /**
-     * Sanitize error messages to prevent leaking secrets.
-     */
     protected function sanitizeError(string $message): string
     {
-        // Remove any password or credential information
         $message = preg_replace('/password[\'"\s]*[:=][\'"\s]*[^\s\'"]*/i', 'password=***', $message);
         $message = preg_replace('/using password: \w+/i', 'using password: ***', $message);
 
         return Str::limit($message, 200);
     }
 
-    /**
-     * Detect the session cookie domain from the request host.
-     *
-     * For subdomains (e.g. god.makeit.uno) returns the root domain
-     * with a leading dot (.makeit.uno) so the session cookie is shared.
-     * For bare domains, localhost, or IPs returns 'null' (Laravel auto-detect).
-     */
     protected function detectSessionDomain(string $host): string
     {
-        // Don't set domain for localhost or IP addresses
         if ($host === 'localhost' || filter_var($host, FILTER_VALIDATE_IP)) {
             return 'null';
         }
 
         $parts = explode('.', $host);
 
-        // Bare domain (e.g. makeit.uno) – use dot-prefixed
         if (count($parts) === 2) {
             return '.' . $host;
         }
 
-        // Subdomain (e.g. god.makeit.uno) – use root domain
         if (count($parts) >= 3) {
             return '.' . implode('.', array_slice($parts, -2));
         }
 
-        // Single-part host (e.g. "localhost" variant) – auto-detect
         return 'null';
     }
 
-    /**
-     * Reconnect database from current .env.
-     */
     protected function reconnectDatabase(): void
     {
-        // Force reload .env
-        $dotenv = \Dotenv\Dotenv::createMutable(base_path());
-        $dotenv->load();
+        try {
+            $dotenv = \Dotenv\Dotenv::createMutable(base_path());
+            $dotenv->load();
+        } catch (\Exception $e) {
+            // Ignore if .env not found
+        }
 
         config([
             'database.connections.mysql.host' => env('DB_HOST'),
