@@ -1,6 +1,13 @@
 .starmap {
     background: rgba(0, 0, 0, 0);
     height: 100%;
+    width: 100%;
+
+    // Ensure Leaflet's own container always fills the starmap div.
+    .leaflet-container {
+        height: 100% !important;
+        width: 100% !important;
+    }
 
     .leaflet-icon-object {
         background: none;

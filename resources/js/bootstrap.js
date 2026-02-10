@@ -72,6 +72,30 @@ require('leaflet-ajax');
 require('perfect-scrollbar');
 
 /**
+ * Dynamic viewport height for mobile browsers.
+ *
+ * Mobile Chrome/Safari reserve space for the address bar, making CSS `100vh`
+ * taller than the actually visible area. We set --app-vh on :root to the
+ * real inner height and update it on resize / orientation change.
+ */
+
+(function setAppVh() {
+    function update() {
+        document.documentElement.style.setProperty(
+            '--app-vh', window.innerHeight + 'px'
+        );
+    }
+
+    update();
+
+    window.addEventListener('resize', update);
+    window.addEventListener('orientationchange', function () {
+        // Small delay so the browser finishes its layout shift.
+        setTimeout(update, 150);
+    });
+})();
+
+/**
  * We will register the global error handling.
  *
  * Each HTTP status code gets a specific, user-friendly treatment instead
