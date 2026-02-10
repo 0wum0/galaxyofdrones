@@ -8,6 +8,17 @@
             timer: 1500
         });
     </script>
+@elseif (session()->has('error'))
+    {{-- Generic error flash (e.g. CSRF token mismatch / session expired) --}}
+    <script type="text/javascript">
+        Swal.fire({
+            icon: 'warning',
+            title: '{{ __('messages.error.whoops') }}',
+            text: '{{ session('error') }}',
+            showConfirmButton: false,
+            timer: 2500
+        });
+    </script>
 @elseif (session()->has('resent'))
     <script type="text/javascript">
         Swal.fire({

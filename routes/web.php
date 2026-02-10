@@ -126,6 +126,39 @@ Route::group([
 Route::get('logout', [LoginController::class, 'logout'])
     ->name('logout');
 
+/*
+|--------------------------------------------------------------------------
+| Debug: Session / CSRF diagnostic endpoint (auth + signed URL required)
+|--------------------------------------------------------------------------
+| Usage:  php artisan tinker  →  URL::signedRoute('debug.session')
+| Then open the signed URL while logged in. Safe on production because:
+|   1) requires authentication
+|   2) requires a valid signed URL (unguessable)
+| Remove this route once session issues are resolved.
+*/
+Route::get('debug/session', function (\Illuminate\Http\Request $request) {
+    $user = $request->user();
+    return response()->json([
+        'session_id'        => $request->session()->getId(),
+        'csrf_token_present' => (bool) $request->session()->token(),
+        'cookie_name'       => config('session.cookie'),
+        'session_domain'    => config('session.domain'),
+        'session_secure'    => config('session.secure'),
+        'session_samesite'  => config('session.same_site'),
+        'session_driver'    => config('session.driver'),
+        'session_lifetime'  => config('session.lifetime'),
+        'app_url'           => config('app.url'),
+        'app_env'           => config('app.env'),
+        'request_secure'    => $request->isSecure(),
+        'request_host'      => $request->getHost(),
+        'request_scheme'    => $request->getScheme(),
+        'user_id'           => $user?->id,
+        'user_started'      => $user ? $user->isStarted() : null,
+        'php_version'       => PHP_VERSION,
+        'session_save_path' => session_save_path(),
+    ]);
+})->middleware(['auth', 'signed'])->name('debug.session');
+
 Route::get('/{vue?}', [HomeController::class, 'index'])
     ->name('home')
     ->where('vue', 'starmap');
