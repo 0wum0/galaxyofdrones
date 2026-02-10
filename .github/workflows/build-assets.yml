@@ -98,6 +98,55 @@ jobs:
           fi
           echo "--- All CSS asset references verified ---"
 
+      - name: Verify Leaflet JS images exist
+        run: |
+          echo "--- Verifying Leaflet images for JS (L.Icon.Default.imagePath) ---"
+          MISSING=0
+          for img in marker-icon.png marker-icon-2x.png marker-shadow.png layers.png layers-2x.png; do
+            if [ ! -f "public/images/$img" ]; then
+              echo "MISSING: public/images/$img (needed by Leaflet JS)"
+              MISSING=$((MISSING + 1))
+            else
+              echo "OK: public/images/$img"
+            fi
+          done
+          if [ "$MISSING" -gt 0 ]; then
+            echo "ERROR: $MISSING Leaflet image(s) missing from public/images/!"
+            exit 1
+          fi
+          echo "--- All Leaflet JS images verified ---"
+
+      - name: Verify Blade asset() references
+        run: |
+          echo "--- Verifying Blade asset() references ---"
+          MISSING=0
+          # Extract asset('...') paths from all Blade templates
+          ASSETS=$(grep -rhoP "asset\(\s*['\"]([^'\"]+)['\"]\s*\)" resources/views/ \
+            | grep -oP "asset\(\s*['\"]\\K[^'\"]+")
+          for ASSET in $(echo "$ASSETS" | sort -u); do
+            # Skip dynamic placeholders like __resource__
+            if echo "$ASSET" | grep -q '__'; then
+              echo "SKIP (dynamic): $ASSET"
+              continue
+            fi
+            # Skip tile references (generated at runtime, not committed)
+            if echo "$ASSET" | grep -q '^tile/'; then
+              echo "SKIP (runtime): $ASSET"
+              continue
+            fi
+            if [ ! -e "public/$ASSET" ]; then
+              echo "MISSING: public/$ASSET (referenced by Blade template)"
+              MISSING=$((MISSING + 1))
+            else
+              echo "OK: public/$ASSET"
+            fi
+          done
+          if [ "$MISSING" -gt 0 ]; then
+            echo "ERROR: $MISSING Blade asset() reference(s) point to missing files!"
+            exit 1
+          fi
+          echo "--- All Blade asset references verified ---"
+
       - name: Commit built assets
         run: |
           git config user.name "github-actions[bot]"
@@ -105,6 +154,7 @@ jobs:
 
           # Stage only the build output directories/files
           git add -f public/js/app.js public/js/vendor.js public/js/manifest.js
+          git add -f public/js/vendor.js.LICENSE.txt
           git add -f public/css/app.css
           git add -f public/css/images/
           git add -f public/mix-manifest.json

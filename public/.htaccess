@@ -6,13 +6,20 @@
     RewriteEngine On
 
     # Force HTTPS (shared hosting / Hostinger)
-    # This MUST happen at the application level to prevent the hosting server
-    # from doing its own HTTP→HTTPS redirect which converts POST to GET and
-    # drops the request body. By handling it here, we ensure POST data is
-    # preserved for installer and other form submissions.
+    # This rule is needed when DocumentRoot IS /public (Variante A).
+    # When reached via the root .htaccess rewrite (Variante B),
+    # HTTPS was already enforced there, so this is a no-op.
+    #
+    # CRITICAL: Use %{THE_REQUEST} to extract the ORIGINAL client URI
+    # instead of %{REQUEST_URI}, which may contain "/public/" after
+    # an internal mod_rewrite from the parent .htaccess. Without this,
+    # the 301 redirect would expose "/public/" in the browser URL,
+    # breaking Vue Router (history mode) and asset paths.
     RewriteCond %{HTTPS} !=on
     RewriteCond %{HTTP:X-Forwarded-Proto} !=https
-    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+    RewriteCond %{HTTP:X-Forwarded-Ssl} !=on
+    RewriteCond %{THE_REQUEST} \s(/[^\s]*)\s
+    RewriteRule ^ https://%{HTTP_HOST}%1 [L,R=301]
 
     # Handle Authorization Header
     RewriteCond %{HTTP:Authorization} .
