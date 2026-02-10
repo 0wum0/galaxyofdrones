@@ -6,6 +6,7 @@
 /storage/*.key
 /storage/installed.lock
 /storage/install.unlock
+/storage/app/installer_state.json
 /vendor
 .env
 .env.backup

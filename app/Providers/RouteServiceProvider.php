@@ -44,6 +44,13 @@ class RouteServiceProvider extends ServiceProvider
                 ->namespace($this->namespace)
                 ->group(base_path('routes/api.php'));
 
+            // Installer routes use a lightweight middleware group that
+            // does NOT include CSRF verification, Passport, or CheckInstalled.
+            // This prevents 419 errors and Passport exceptions during install.
+            Route::middleware('installer')
+                ->namespace($this->namespace)
+                ->group(base_path('routes/installer.php'));
+
             Route::middleware('web')
                 ->namespace($this->namespace)
                 ->group(base_path('routes/web.php'));

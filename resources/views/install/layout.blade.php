@@ -117,6 +117,13 @@
             padding: 16px; font-family: 'Courier New', monospace; font-size: 13px;
             color: #81c784; max-height: 300px; overflow-y: auto; white-space: pre-wrap;
         }
+        .debug-box {
+            background: rgba(74, 53, 0, 0.3); border: 1px solid #e65100; border-radius: 8px;
+            padding: 16px; margin-bottom: 16px; font-family: 'Courier New', monospace;
+            font-size: 12px; color: #ffb74d; max-height: 200px; overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        .debug-box summary { cursor: pointer; font-weight: 600; color: #ffb74d; }
         .text-center { text-align: center; }
         .mt-2 { margin-top: 16px; }
         .mt-3 { margin-top: 24px; }
@@ -156,6 +163,24 @@
                     <div class="step-dot {{ ($step ?? 0) >= $i ? (($step ?? 0) > $i ? 'done' : 'active') : '' }}">{{ $i }}</div>
                 @endfor
             </div>
+        @endif
+
+        {{-- Debug info box: only visible when APP_DEBUG=true --}}
+        @if (config('app.debug'))
+            <details class="debug-box">
+                <summary>Debug Info (APP_DEBUG=true)</summary>
+                PHP: {{ PHP_VERSION }} | Laravel: {{ app()->version() }}
+                Session Driver: {{ config('session.driver') }} | Cache: {{ config('cache.default') }}
+                APP_URL: {{ config('app.url') }}
+                Session Domain: {{ config('session.domain') ?: '(null/auto)' }}
+                Session Secure: {{ var_export(config('session.secure'), true) }}
+                Session SameSite: {{ config('session.same_site') }}
+                Request Secure: {{ request()->isSecure() ? 'yes' : 'no' }}
+                Request URL: {{ request()->fullUrl() }}
+                @if (file_exists(storage_path('app/installer_state.json')))
+                Installer State: {{ @file_get_contents(storage_path('app/installer_state.json')) }}
+                @endif
+            </details>
         @endif
 
         @yield('content')
