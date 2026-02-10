@@ -68,6 +68,36 @@ jobs:
           done
           echo "--- All build artifacts present ---"
 
+      - name: Verify CSS asset references
+        run: |
+          echo "--- Verifying CSS url() asset references ---"
+          MISSING=0
+          # Extract relative url() paths from compiled CSS (skip data:, http:, https:, #)
+          URLS=$(grep -oP 'url\(\K[^)]+' public/css/app.css \
+            | sed "s/['\"]//g" \
+            | sed 's/[?#].*//' \
+            | grep -v '^data:' \
+            | grep -v '^https\?:' \
+            | grep -v '^#' \
+            | sort -u)
+          for REL in $URLS; do
+            # Resolve relative path from public/css/ directory
+            RESOLVED="public/css/$REL"
+            # Normalize (handle ../)
+            RESOLVED=$(realpath --relative-to=. -m "$RESOLVED")
+            if [ ! -f "$RESOLVED" ]; then
+              echo "MISSING: $REL -> $RESOLVED"
+              MISSING=$((MISSING + 1))
+            else
+              echo "OK: $REL -> $RESOLVED"
+            fi
+          done
+          if [ "$MISSING" -gt 0 ]; then
+            echo "ERROR: $MISSING CSS asset reference(s) could not be resolved!"
+            exit 1
+          fi
+          echo "--- All CSS asset references verified ---"
+
       - name: Commit built assets
         run: |
           git config user.name "github-actions[bot]"
@@ -76,6 +106,7 @@ jobs:
           # Stage only the build output directories/files
           git add -f public/js/app.js public/js/vendor.js public/js/manifest.js
           git add -f public/css/app.css
+          git add -f public/css/images/
           git add -f public/mix-manifest.json
           git add -f public/images/
 
