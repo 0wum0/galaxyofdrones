@@ -8,6 +8,7 @@ use App\Models\Building;
 use App\Models\Grid;
 use App\Models\Planet;
 use App\Models\User;
+use App\Starmap\Generator;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
@@ -202,5 +203,66 @@ class PlanetTest extends TestCase
 
         $this->delete("/api/planet/demolish/{$grid->id}")
             ->assertStatus(200);
+    }
+
+    /**
+     * Regression: the surface endpoint must return a non-empty grids array.
+     *
+     * Planets without grids cause the Pixi.js surface to render an empty
+     * canvas. The controller now calls ensureGridsExist() so even planets
+     * created without the Generator receive grid slots.
+     */
+    public function testIndexReturnsNonEmptyGrids()
+    {
+        $expectedCount = pow(Generator::GRID_COUNT, 2);
+
+        $response = $this->getJson('/api/planet')
+            ->assertStatus(200);
+
+        $grids = $response->json('grids');
+
+        $this->assertIsArray($grids);
+        $this->assertCount($expectedCount, $grids);
+
+        // Each grid must have coordinates and a type.
+        foreach ($grids as $grid) {
+            $this->assertArrayHasKey('id', $grid);
+            $this->assertArrayHasKey('x', $grid);
+            $this->assertArrayHasKey('y', $grid);
+            $this->assertArrayHasKey('type', $grid);
+        }
+    }
+
+    /**
+     * Regression: ensure ensureGridsExist() is idempotent — calling it on
+     * a planet that already has grids must NOT create duplicates.
+     */
+    public function testEnsureGridsExistIsIdempotent()
+    {
+        $planet = auth()->user()->current;
+        $expectedCount = pow(Generator::GRID_COUNT, 2);
+
+        // First call creates grids.
+        $planet->ensureGridsExist();
+        $this->assertCount($expectedCount, $planet->grids()->get());
+
+        // Second call must not duplicate them.
+        $planet->ensureGridsExist();
+        $this->assertCount($expectedCount, $planet->grids()->get());
+    }
+
+    /**
+     * Regression: grids must include exactly one central slot.
+     */
+    public function testGridInitializationCreatesCentralSlot()
+    {
+        $planet = auth()->user()->current;
+        $planet->ensureGridsExist();
+
+        $centralCount = $planet->grids()
+            ->where('type', Grid::TYPE_CENTRAL)
+            ->count();
+
+        $this->assertEquals(1, $centralCount, 'Planet must have exactly one central grid slot.');
     }
 }

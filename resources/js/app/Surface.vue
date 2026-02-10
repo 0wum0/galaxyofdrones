@@ -88,38 +88,17 @@ export default {
 
         EventBus.$on('planet-updated', this.planetUpdated);
 
-        // ---------------------------------------------------------------
-        // Handle late-mount race condition:
-        // When navigating from /starmap back to /, the Sidebar's $route
-        // watcher fires fetchData() which is async. If planet data was
-        // already cached (from a previous fetch), use it immediately so
-        // Pixi initialises without waiting for the next API response.
-        // The Sidebar will still re-fetch and emit planet-updated; at
-        // that point updatePixi() will refresh the sprites.
-        //
-        // We delay initialisation slightly (nextTick + rAF) so that the
-        // DOM has settled and the parent container has real dimensions.
-        // This is critical when transitioning from /starmap where the
-        // Bootstrap modal backdrop may still be animating out.
-        // ---------------------------------------------------------------
-        if (!this.stage && EventBus._lastPlanetData) {
-            this.$nextTick(() => {
-                requestAnimationFrame(() => {
-                    if (!this.stage) {
-                        this.planetUpdated(EventBus._lastPlanetData);
-                    }
-                });
-            });
+        // If planet data was already fetched (cached by Sidebar), use it
+        // immediately.  No timing tricks — initPixi is safe to call as
+        // soon as the component is mounted because rendererWidth/Height
+        // fall back to the prop dimensions when the viewport reports 0.
+        if (EventBus._lastPlanetData) {
+            this.planetUpdated(EventBus._lastPlanetData);
         }
     },
 
     beforeDestroy() {
         EventBus.$off('planet-updated', this.planetUpdated);
-
-        if (this._deferTimer) {
-            clearInterval(this._deferTimer);
-            this._deferTimer = null;
-        }
 
         this.destroyPixi();
     },
@@ -129,23 +108,6 @@ export default {
             this.planet = planet;
 
             if (!this.stage && !this._loading) {
-                // If the viewport has zero dimensions (e.g. the modal
-                // backdrop is still covering the container), defer
-                // initialisation until it has real dimensions.
-                if (this.$viewport.width() < 2 || this.$viewport.height() < 2) {
-                    this._deferredInit = true;
-                    if (!this._deferTimer) {
-                        this._deferTimer = setInterval(() => {
-                            if (this.$viewport.width() >= 2 && this.$viewport.height() >= 2) {
-                                clearInterval(this._deferTimer);
-                                this._deferTimer = null;
-                                this._deferredInit = false;
-                                this.initPixi();
-                            }
-                        }, 100);
-                    }
-                    return;
-                }
                 this.initPixi();
             } else if (this.stage) {
                 this.updatePixi();
@@ -279,6 +241,10 @@ export default {
         },
 
         resize() {
+            if (!this.renderer) {
+                return;
+            }
+
             this.renderer.resize(this.rendererWidth(), this.rendererHeight());
             this.container.scale.set(this.containerScale());
             this.align();
@@ -356,11 +322,15 @@ export default {
         },
 
         rendererWidth() {
-            return Math.max(1, this.$viewport.width());
+            // Use the viewport width if available, otherwise fall back to
+            // the component prop so PixiJS always has valid dimensions.
+            const vpWidth = this.$viewport ? this.$viewport.width() : 0;
+            return vpWidth > 1 ? vpWidth : this.width;
         },
 
         rendererHeight() {
-            return Math.max(1, this.$viewport.height());
+            const vpHeight = this.$viewport ? this.$viewport.height() : 0;
+            return vpHeight > 1 ? vpHeight : this.height;
         },
 
         centerX() {

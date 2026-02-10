@@ -1,8 +1,14 @@
 .surface {
     display: block;
-    // Ensure the canvas element is visible and fills the parent container.
-    // Without explicit dimensions, the canvas could collapse to 0×0 before
-    // Pixi.js sets the width/height attributes via autoDetectRenderer.
+    // Position the canvas absolutely within the container-app so it fills
+    // the entire viewport without being pushed by sibling elements in the
+    // normal document flow.  This guarantees the canvas is visible
+    // regardless of the order of elements or any lingering modal backdrops.
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 100%;
     height: 100%;
+    // Place behind sidebar/navigation but above the background.
+    z-index: 0;
 }
