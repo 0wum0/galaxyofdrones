@@ -52,6 +52,9 @@ jobs:
       - name: Build production assets
         run: yarn prod
 
+      # ---------------------------------------------------------------
+      # Verification Step 1: Build output existence & size
+      # ---------------------------------------------------------------
       - name: Verify build output exists
         run: |
           echo "--- Checking build artifacts ---"
@@ -68,6 +71,141 @@ jobs:
           done
           echo "--- All build artifacts present ---"
 
+      # ---------------------------------------------------------------
+      # Verification Step 2: Vue bootstrap sanity check
+      # Fail if app.js does NOT contain the Vue mount call.
+      # In minified webpack output, the pattern is:
+      #   .$mount("#app")  or  .$mount('#app')
+      # We also check for "new Vue" or "new X.default" as a secondary signal.
+      # ---------------------------------------------------------------
+      - name: Verify Vue bootstrap in app.js
+        run: |
+          echo "--- Verifying Vue bootstrap code in public/js/app.js ---"
+
+          if grep -qP '\.\$mount\(' public/js/app.js; then
+            echo "OK: Found \$mount() call in app.js"
+          else
+            echo "ERROR: public/js/app.js does NOT contain a \$mount() call!"
+            echo "Vue will not mount and raw {{ }} bindings will be visible."
+            exit 1
+          fi
+
+          # Secondary check: the app.js entry module must exist as a proper
+          # webpack chunk, not be empty or truncated.
+          if grep -qP 'webpackChunk' public/js/app.js; then
+            echo "OK: app.js is a valid webpack chunk"
+          else
+            echo "ERROR: app.js does not look like a valid webpack chunk!"
+            exit 1
+          fi
+
+          # Verify the runtime (manifest.js) has the chunk-installed tracking
+          if grep -qP 'webpackChunk' public/js/manifest.js; then
+            echo "OK: manifest.js contains the webpack runtime"
+          else
+            echo "ERROR: manifest.js does not contain the webpack runtime!"
+            exit 1
+          fi
+
+          echo "--- Vue bootstrap verification passed ---"
+
+      # ---------------------------------------------------------------
+      # Verification Step 3: Webpack chunk dependency check
+      # Ensure every chunk ID that app.js depends on is either:
+      #   a) pre-installed in the manifest.js runtime, OR
+      #   b) delivered by a .js file under public/js/
+      # If not, the entry callback will never fire (Vue won't mount).
+      # ---------------------------------------------------------------
+      - name: Verify webpack chunk dependencies are satisfiable
+        run: |
+          echo "--- Verifying webpack chunk dependencies ---"
+          node - <<'SCRIPT'
+          const fs = require('fs');
+          const path = require('path');
+
+          const jsDir = 'public/js';
+          const appContent = fs.readFileSync(path.join(jsDir, 'app.js'), 'utf8');
+          const manifestContent = fs.readFileSync(path.join(jsDir, 'manifest.js'), 'utf8');
+
+          // 1. Find entry-point dependency array, e.g. .O(void 0,[170,898],…)
+          const depMatch = appContent.match(/\.O\(void 0,\[([0-9,]+)\]/);
+          if (!depMatch) {
+            console.log('OK: No chunk dependency array found (single-chunk build).');
+            process.exit(0);
+          }
+          const requiredIds = depMatch[1].split(',').map(Number);
+          console.log('Entry requires chunks:', requiredIds);
+
+          // 2. Find pre-installed chunk IDs in manifest.js runtime
+          const installedMatch = manifestContent.match(/var \w=\{((?:\d+:\d+,?)+)\}/);
+          const installedIds = new Set();
+          if (installedMatch) {
+            installedMatch[1].split(',').forEach(p => {
+              installedIds.add(parseInt(p.split(':')[0], 10));
+            });
+          }
+          console.log('Pre-installed in runtime:', [...installedIds]);
+
+          // 3. Find chunk IDs delivered by JS files
+          const deliveredIds = new Set();
+          const jsFiles = fs.readdirSync(jsDir).filter(f => f.endsWith('.js'));
+          for (const f of jsFiles) {
+            const content = fs.readFileSync(path.join(jsDir, f), 'utf8');
+            const chunkMatch = content.match(/\.push\(\[\[([0-9,]+)\]/);
+            if (chunkMatch) {
+              chunkMatch[1].split(',').map(Number).forEach(id => deliveredIds.add(id));
+            }
+          }
+          console.log('Delivered by JS files:', [...deliveredIds]);
+
+          // 4. Check all required IDs are satisfied
+          const allAvailable = new Set([...installedIds, ...deliveredIds]);
+          const missing = requiredIds.filter(id => !allAvailable.has(id));
+
+          if (missing.length > 0) {
+            console.error(`ERROR: Chunk(s) ${missing.join(', ')} required by app.js entry but NOT available!`);
+            console.error('This means the Vue entry callback will never fire.');
+            console.error('The PreInstallCssChunks plugin in webpack.mix.js should have patched this.');
+            process.exit(1);
+          }
+
+          console.log('OK: All required chunk dependencies are satisfiable.');
+          SCRIPT
+          echo "--- Chunk dependency verification passed ---"
+
+      # ---------------------------------------------------------------
+      # Verification Step 4: mix-manifest.json references
+      # Fail if mix-manifest references files that do not exist.
+      # ---------------------------------------------------------------
+      - name: Verify mix-manifest references exist
+        run: |
+          echo "--- Verifying mix-manifest.json references ---"
+          MISSING=0
+          # Extract all paths from mix-manifest.json (keys)
+          PATHS=$(node -e "
+            const m = require('./public/mix-manifest.json');
+            Object.keys(m).forEach(k => console.log(k));
+          ")
+          for REL in $PATHS; do
+            FILE="public${REL}"
+            # Strip query string for existence check
+            FILE=$(echo "$FILE" | sed 's/[?#].*//')
+            if [ ! -f "$FILE" ]; then
+              echo "MISSING: $REL -> $FILE"
+              MISSING=$((MISSING + 1))
+            else
+              echo "OK: $REL -> $FILE"
+            fi
+          done
+          if [ "$MISSING" -gt 0 ]; then
+            echo "ERROR: $MISSING file(s) referenced in mix-manifest.json do not exist!"
+            exit 1
+          fi
+          echo "--- All mix-manifest references verified ---"
+
+      # ---------------------------------------------------------------
+      # Verification Step 5: CSS asset references
+      # ---------------------------------------------------------------
       - name: Verify CSS asset references
         run: |
           echo "--- Verifying CSS url() asset references ---"
@@ -98,6 +236,9 @@ jobs:
           fi
           echo "--- All CSS asset references verified ---"
 
+      # ---------------------------------------------------------------
+      # Verification Step 6: Leaflet JS images
+      # ---------------------------------------------------------------
       - name: Verify Leaflet JS images exist
         run: |
           echo "--- Verifying Leaflet images for JS (L.Icon.Default.imagePath) ---"
@@ -116,6 +257,9 @@ jobs:
           fi
           echo "--- All Leaflet JS images verified ---"
 
+      # ---------------------------------------------------------------
+      # Verification Step 7: Blade asset() references
+      # ---------------------------------------------------------------
       - name: Verify Blade asset() references
         run: |
           echo "--- Verifying Blade asset() references ---"
@@ -147,16 +291,17 @@ jobs:
           fi
           echo "--- All Blade asset references verified ---"
 
+      # ---------------------------------------------------------------
+      # Commit built assets
+      # ---------------------------------------------------------------
       - name: Commit built assets
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Stage only the build output directories/files
-          git add -f public/js/app.js public/js/vendor.js public/js/manifest.js
-          git add -f public/js/vendor.js.LICENSE.txt
-          git add -f public/css/app.css
-          git add -f public/css/images/
+          # Stage ALL build output (use directories to catch any extra chunk files)
+          git add -f public/js/
+          git add -f public/css/
           git add -f public/mix-manifest.json
           git add -f public/images/
 
