@@ -126,6 +126,9 @@ return [
     |
     */
 
+    // Explicit SESSION_COOKIE env var is recommended to keep the cookie
+    // name stable across deploys, even if APP_NAME changes.  If not set,
+    // the name is derived from APP_NAME (slug + _session).
     'cookie' => env(
         'SESSION_COOKIE',
         Str::slug(env('APP_NAME', 'laravel'), '_').'_session'
