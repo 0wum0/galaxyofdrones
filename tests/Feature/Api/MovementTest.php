@@ -15,7 +15,7 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Bus;
-use Laravel\Passport\Passport;
+
 use Tests\TestCase;
 
 class MovementTest extends TestCase
@@ -28,7 +28,7 @@ class MovementTest extends TestCase
 
         $user = User::factory()->create();
 
-        Passport::actingAs($user);
+        $this->actingAs($user);
 
         $planet = Planet::factory()->create([
             'user_id' => $user->id,

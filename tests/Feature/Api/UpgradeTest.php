@@ -12,7 +12,7 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Bus;
-use Laravel\Passport\Passport;
+
 use Tests\TestCase;
 
 class UpgradeTest extends TestCase
@@ -33,7 +33,7 @@ class UpgradeTest extends TestCase
             'y' => 1,
         ]);
 
-        Passport::actingAs($user);
+        $this->actingAs($user);
 
         $user->update([
             'capital_id' => $planet->id,

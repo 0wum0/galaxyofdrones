@@ -8,7 +8,7 @@ use App\Notifications\MessageSended;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Notification;
-use Laravel\Passport\Passport;
+
 use Tests\TestCase;
 
 class MessageTest extends TestCase
@@ -23,7 +23,7 @@ class MessageTest extends TestCase
             'started_at' => Carbon::now(),
         ]);
 
-        Passport::actingAs($user);
+        $this->actingAs($user);
 
         $sender = User::factory()->create([
             'username' => 'Mike',

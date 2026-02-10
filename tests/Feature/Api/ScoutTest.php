@@ -11,7 +11,7 @@ use App\Models\Unit;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
-use Laravel\Passport\Passport;
+
 use Tests\TestCase;
 
 class ScoutTest extends TestCase
@@ -24,7 +24,7 @@ class ScoutTest extends TestCase
 
         $user = User::factory()->create();
 
-        Passport::actingAs($user);
+        $this->actingAs($user);
 
         $planet = Planet::factory()->create([
             'user_id' => $user->id,
