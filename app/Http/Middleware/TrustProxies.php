@@ -2,7 +2,9 @@
 
 namespace App\Http\Middleware;
 
+use Closure;
 use Illuminate\Http\Middleware\TrustProxies as Middleware;
+use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Request as SymfonyRequest;
 
 class TrustProxies extends Middleware
@@ -18,7 +20,7 @@ class TrustProxies extends Middleware
      *
      * @var array<int, string>|string|null
      */
-    protected $proxies;
+    protected $proxies = '*';
 
     /**
      * The headers that should be used to detect proxies.
@@ -38,20 +40,27 @@ class TrustProxies extends Middleware
         SymfonyRequest::HEADER_X_FORWARDED_PREFIX;
 
     /**
-     * Bootstrap the proxy configuration from environment.
+     * Handle the incoming request, bootstrapping proxy config from env/config.
+     *
+     * NOTE: We read TRUSTED_PROXIES in handle() rather than __construct()
+     * so that it still works when config:cache is active (env() returns null
+     * after config caching; config() always works).
      */
-    public function __construct()
+    public function handle(Request $request, Closure $next)
     {
-        $envProxies = env('TRUSTED_PROXIES');
+        // Prefer config (works with config:cache), fall back to env()
+        $envProxies = config('trustedproxy.proxies', env('TRUSTED_PROXIES', '*'));
 
-        if ($envProxies) {
-            // Support comma-separated list: "10.0.0.1,10.0.0.2" or "*"
-            $this->proxies = $envProxies === '*'
-                ? '*'
-                : array_map('trim', explode(',', $envProxies));
+        if ($envProxies && $envProxies !== '*') {
+            // Support comma-separated list: "10.0.0.1,10.0.0.2"
+            $this->proxies = is_string($envProxies)
+                ? array_map('trim', explode(',', $envProxies))
+                : $envProxies;
         } else {
             // Default: trust all proxies (safe for shared hosting behind LB)
             $this->proxies = '*';
         }
+
+        return parent::handle($request, $next);
     }
 }
