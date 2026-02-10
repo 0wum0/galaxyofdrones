@@ -1,6 +1,6 @@
 /node_modules
 /public/hot
-/public/mix-manifest.json
+# /public/mix-manifest.json — now tracked so Hostinger has versioned asset URLs
 /public/tile
 /public/storage
 /storage/*.key
