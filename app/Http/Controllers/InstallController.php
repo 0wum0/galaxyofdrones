@@ -6,16 +6,23 @@ use App\Models\GameSetting;
 use App\Models\Planet;
 use App\Models\Star;
 use App\Models\User;
+use App\Support\InstallerState;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
 class InstallController extends Controller
 {
+    protected InstallerState $state;
+
+    public function __construct()
+    {
+        $this->state = new InstallerState();
+    }
+
     // ─── INSTALLER STEPS ─────────────────────────────────
 
     /**
@@ -37,6 +44,10 @@ class InstallController extends Controller
         $allPassed = !in_array(false, array_column($requirements, 'passed'))
                   && !in_array(false, array_column($permissions, 'passed'));
 
+        $this->installerLog('Step 1: Requirements check', [
+            'all_passed' => $allPassed,
+        ]);
+
         return view('install.requirements', compact('requirements', 'permissions', 'allPassed'));
     }
 
@@ -49,19 +60,22 @@ class InstallController extends Controller
             return redirect('/');
         }
 
+        // Load defaults from installer state first (survives APP_KEY change),
+        // then fall back to .env values, then to sensible defaults.
+        $stateData = $this->state->all();
         $defaults = [
-            'db_host'     => trimQuotes(env('DB_HOST', 'localhost')),
-            'db_port'     => trimQuotes(env('DB_PORT', '3306')),
-            'db_database' => trimQuotes(env('DB_DATABASE', '')),
-            'db_username' => trimQuotes(env('DB_USERNAME', '')),
-            'db_password' => trimQuotes(env('DB_PASSWORD', '')),
+            'db_host'     => $stateData['db_host'] ?? trimQuotes(env('DB_HOST', 'localhost')),
+            'db_port'     => $stateData['db_port'] ?? trimQuotes(env('DB_PORT', '3306')),
+            'db_database' => $stateData['db_database'] ?? trimQuotes(env('DB_DATABASE', '')),
+            'db_username' => $stateData['db_username'] ?? trimQuotes(env('DB_USERNAME', '')),
+            'db_password' => $stateData['db_password'] ?? trimQuotes(env('DB_PASSWORD', '')),
         ];
 
         return view('install.database', compact('defaults'));
     }
 
     /**
-     * Step 2b: Test database connection.
+     * Step 2b: Test database connection (AJAX or form POST).
      */
     public function testDatabase(Request $request)
     {
@@ -83,10 +97,14 @@ class InstallController extends Controller
         ]);
 
         if ($validator->fails()) {
+            $this->installerLog('DB test: validation failed', $validator->errors()->toArray());
+
             if ($wantsJson) {
                 return response()->json(['success' => false, 'message' => 'Validation failed.', 'errors' => $validator->errors()]);
             }
-            return redirect()->back()->withErrors($validator)->withInput();
+            return redirect()->route('install.database')
+                ->withErrors($validator)
+                ->withInput();
         }
 
         $host     = trimQuotes($request->db_host);
@@ -105,24 +123,41 @@ class InstallController extends Controller
             $connection = null;
         } catch (\PDOException $e) {
             $errorMsg = 'Connection failed: ' . $this->sanitizeError($e->getMessage());
+            $this->installerLog('DB test: connection failed', ['error' => $errorMsg]);
 
             if ($wantsJson) {
                 return response()->json(['success' => false, 'message' => $errorMsg]);
             }
-            return redirect()->back()
+            return redirect()->route('install.database')
                 ->withErrors(['db_host' => $errorMsg])
                 ->withInput();
         }
 
+        // If AJAX test only, return success JSON
         if ($wantsJson) {
             return response()->json(['success' => true, 'message' => 'Database connection successful!']);
         }
 
-        return $this->environment($request);
+        $this->installerLog('DB test: connection successful');
+
+        // Persist DB credentials in file-based state (survives APP_KEY change)
+        $this->state->set([
+            'db_host' => $host,
+            'db_port' => $port,
+            'db_database' => $database,
+            'db_username' => $username,
+            'db_password' => $password,
+        ]);
+
+        // Proceed to write .env
+        return $this->writeEnvironment($request, $host, $port, $database, $username, $password);
     }
 
     /**
      * Step 3: Save database config, create .env, generate key.
+     *
+     * Called internally from testDatabase() on success.
+     * Also available as a POST endpoint for retry scenarios.
      */
     public function environment(Request $request)
     {
@@ -139,33 +174,56 @@ class InstallController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return redirect()->route('install.database')->withErrors($validator)->withInput();
+            return redirect()->route('install.database')
+                ->withErrors($validator)
+                ->withInput();
         }
 
-        $dbHost     = trimQuotes($request->db_host);
-        $dbPort     = trimQuotes($request->db_port);
-        $dbDatabase = trimQuotes($request->db_database);
-        $dbUsername  = trimQuotes($request->db_username);
-        $dbPassword  = trimQuotes($request->db_password ?? '');
+        $host     = trimQuotes($request->db_host);
+        $port     = trimQuotes($request->db_port);
+        $database = trimQuotes($request->db_database);
+        $username = trimQuotes($request->db_username);
+        $password = trimQuotes($request->db_password ?? '');
 
+        // Persist in state
+        $this->state->set([
+            'db_host' => $host,
+            'db_port' => $port,
+            'db_database' => $database,
+            'db_username' => $username,
+            'db_password' => $password,
+        ]);
+
+        return $this->writeEnvironment($request, $host, $port, $database, $username, $password);
+    }
+
+    /**
+     * Internal: Write the .env file and redirect to migrate.
+     */
+    protected function writeEnvironment(Request $request, string $host, string $port, string $database, string $username, string $password)
+    {
+        // Verify DB connection one more time
         try {
             new \PDO(
-                "mysql:host={$dbHost};port={$dbPort};dbname={$dbDatabase}",
-                $dbUsername,
-                $dbPassword,
+                "mysql:host={$host};port={$port};dbname={$database}",
+                $username,
+                $password,
                 [\PDO::ATTR_TIMEOUT => 5]
             );
         } catch (\PDOException $e) {
+            $this->installerLog('Environment: DB verification failed', ['error' => $e->getMessage()]);
             return redirect()->route('install.database')
                 ->withErrors(['db_host' => 'Database connection failed: ' . $this->sanitizeError($e->getMessage())])
                 ->withInput();
         }
 
-        $appKey = 'base64:' . base64_encode(random_bytes(32));
+        // Preserve existing APP_KEY if present (prevents session invalidation on re-run)
+        $existingKey = $this->getExistingAppKey();
+        $appKey = $existingKey ?: ('base64:' . base64_encode(random_bytes(32)));
+
         $appUrl = $request->getSchemeAndHttpHost();
         $cronToken = Str::random(32);
         $installToken = Str::random(32);
-        $sessionDomain = $this->detectSessionDomain($request->getHost());
 
         $envContent = $this->buildEnvContent([
             'APP_NAME' => 'Galaxy of Drones Online',
@@ -178,18 +236,17 @@ class InstallController extends Controller
             'LOG_CHANNEL' => 'single',
             'LOG_LEVEL' => 'error',
             'DB_CONNECTION' => 'mysql',
-            'DB_HOST' => $dbHost,
-            'DB_PORT' => $dbPort,
-            'DB_DATABASE' => $dbDatabase,
-            'DB_USERNAME' => $dbUsername,
-            'DB_PASSWORD' => $dbPassword,
+            'DB_HOST' => $host,
+            'DB_PORT' => $port,
+            'DB_DATABASE' => $database,
+            'DB_USERNAME' => $username,
+            'DB_PASSWORD' => $password,
             'BROADCAST_DRIVER' => 'log',
             'CACHE_DRIVER' => 'file',
             'QUEUE_CONNECTION' => 'sync',
             'SESSION_DRIVER' => 'file',
             'SESSION_LIFETIME' => '120',
-            'SESSION_DOMAIN' => $sessionDomain,
-            'SESSION_SECURE_COOKIE' => $request->isSecure() ? 'true' : 'null',
+            'SESSION_SECURE_COOKIE' => 'null',
             'SESSION_SAME_SITE' => 'lax',
             'MAIL_MAILER' => 'smtp',
             'MAIL_HOST' => 'localhost',
@@ -207,18 +264,28 @@ class InstallController extends Controller
         file_put_contents($envPath, $envContent);
         @chmod($envPath, 0600);
 
+        $this->installerLog('Environment: .env written', [
+            'app_url' => $appUrl,
+            'key_reused' => !empty($existingKey),
+        ]);
+
+        // Clear caches so new config is picked up
         foreach (['config:clear', 'cache:clear', 'view:clear', 'route:clear'] as $cmd) {
             try {
                 Artisan::call($cmd);
             } catch (\Exception $e) {
-                // Ignore
+                // Ignore – caches may not exist yet
             }
         }
 
-        $request->session()->put('install_env_written', true);
-        $request->session()->put('install_cron_token', $cronToken);
-        $request->session()->put('install_token', $installToken);
+        // Mark env step as completed in FILE-BASED state (not session!)
+        $this->state->markCompleted('env_written');
+        $this->state->set([
+            'cron_token' => $cronToken,
+            'install_token' => $installToken,
+        ]);
 
+        // Redirect to migrate step
         return redirect()->route('install.migrate');
     }
 
@@ -231,7 +298,9 @@ class InstallController extends Controller
             return redirect('/');
         }
 
-        if (!$request->session()->get('install_env_written')) {
+        // Check file-based state (NOT session – sessions break after APP_KEY change)
+        if (!$this->state->hasCompleted('env_written')) {
+            $this->installerLog('Migrate: env not written yet, redirecting to database');
             return redirect()->route('install.database');
         }
 
@@ -239,31 +308,53 @@ class InstallController extends Controller
         $errors = [];
 
         try {
-            Artisan::call('config:clear');
-            $results[] = 'Configuration cache cleared.';
+            // Re-read the .env we just wrote
+            try {
+                Artisan::call('config:clear');
+            } catch (\Exception $e) {
+                // Ignore
+            }
 
-            app()->bootstrapWith([
-                \Illuminate\Foundation\Bootstrap\LoadEnvironmentVariables::class,
-                \Illuminate\Foundation\Bootstrap\LoadConfiguration::class,
-            ]);
+            // Reload environment from .env file
+            try {
+                $dotenv = \Dotenv\Dotenv::createMutable(base_path());
+                $dotenv->load();
+            } catch (\Exception $e) {
+                // Ignore
+            }
+
+            // Apply the DB config from our state file (most reliable source)
+            $dbHost = $this->state->get('db_host', env('DB_HOST'));
+            $dbPort = $this->state->get('db_port', env('DB_PORT'));
+            $dbDatabase = $this->state->get('db_database', env('DB_DATABASE'));
+            $dbUsername = $this->state->get('db_username', env('DB_USERNAME'));
+            $dbPassword = $this->state->get('db_password', env('DB_PASSWORD'));
 
             config([
-                'database.connections.mysql.host' => env('DB_HOST'),
-                'database.connections.mysql.port' => env('DB_PORT'),
-                'database.connections.mysql.database' => env('DB_DATABASE'),
-                'database.connections.mysql.username' => env('DB_USERNAME'),
-                'database.connections.mysql.password' => env('DB_PASSWORD'),
+                'database.connections.mysql.host' => $dbHost,
+                'database.connections.mysql.port' => $dbPort,
+                'database.connections.mysql.database' => $dbDatabase,
+                'database.connections.mysql.username' => $dbUsername,
+                'database.connections.mysql.password' => $dbPassword,
             ]);
             DB::purge('mysql');
             DB::reconnect('mysql');
 
+            $results[] = 'Configuration loaded.';
+
             Artisan::call('migrate', ['--force' => true]);
             $results[] = 'Database migrations completed.';
-            $results[] = trim(Artisan::output());
+            $migrationOutput = trim(Artisan::output());
+            if ($migrationOutput) {
+                $results[] = $migrationOutput;
+            }
 
             Artisan::call('db:seed', ['--force' => true]);
             $results[] = 'Database seeding completed.';
-            $results[] = trim(Artisan::output());
+            $seedOutput = trim(Artisan::output());
+            if ($seedOutput) {
+                $results[] = $seedOutput;
+            }
 
             try {
                 Artisan::call('passport:install', ['--force' => true]);
@@ -279,14 +370,17 @@ class InstallController extends Controller
                 $results[] = 'Storage link skipped (may already exist).';
             }
 
+            // Mark step as completed in file-based state
+            $this->state->markCompleted('migrated');
+            $this->installerLog('Migrate: completed successfully');
+
         } catch (\Exception $e) {
             $errors[] = 'Migration error: ' . $this->sanitizeError($e->getMessage());
             $errors[] = 'Check storage/logs/laravel.log for details.';
+            $this->installerLog('Migrate: FAILED', ['error' => $e->getMessage()]);
 
             return view('install.migrate', compact('results', 'errors'));
         }
-
-        $request->session()->put('install_migrated', true);
 
         return view('install.migrate', compact('results', 'errors'));
     }
@@ -300,7 +394,7 @@ class InstallController extends Controller
             return redirect('/');
         }
 
-        if (!$request->session()->get('install_migrated')) {
+        if (!$this->state->hasCompleted('migrated')) {
             return redirect()->route('install.database');
         }
 
@@ -364,13 +458,14 @@ class InstallController extends Controller
             $starterCount = Planet::starter()->count();
 
             $results[] = "Stars: {$starCount}, Planets: {$planetCount}, Starter slots: {$starterCount}";
+            $this->installerLog('StarMap: generated', ['stars' => $starCount, 'planets' => $planetCount]);
 
         } catch (\Exception $e) {
             $errors[] = 'StarMap generation error: ' . $this->sanitizeError($e->getMessage());
-            Log::error('StarMap generation failed', ['error' => $e->getMessage()]);
+            $this->installerLog('StarMap: FAILED', ['error' => $e->getMessage()]);
         }
 
-        $request->session()->put('install_starmap_done', true);
+        $this->state->markCompleted('starmap_done');
 
         $starmapExists = Star::count() > 0;
         $starCount = Star::count();
@@ -392,7 +487,7 @@ class InstallController extends Controller
             return redirect('/');
         }
 
-        if (!$request->session()->get('install_migrated')) {
+        if (!$this->state->hasCompleted('migrated')) {
             return redirect()->route('install.database');
         }
 
@@ -423,7 +518,9 @@ class InstallController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return redirect()->route('install.admin')->withErrors($validator)->withInput();
+            return redirect()->route('install.admin')
+                ->withErrors($validator)
+                ->withInput();
         }
 
         try {
@@ -436,10 +533,12 @@ class InstallController extends Controller
                 'is_enabled' => true,
             ]);
 
-            $request->session()->put('install_admin_created', true);
+            $this->state->markCompleted('admin_created');
+            $this->installerLog('Admin: user created', ['username' => $request->username]);
 
             return redirect()->route('install.complete');
         } catch (\Exception $e) {
+            $this->installerLog('Admin: FAILED', ['error' => $e->getMessage()]);
             return redirect()->route('install.admin')
                 ->withErrors(['username' => 'Error creating admin: ' . $this->sanitizeError($e->getMessage())])
                 ->withInput();
@@ -455,12 +554,21 @@ class InstallController extends Controller
             return redirect('/');
         }
 
-        if (!$request->session()->get('install_admin_created')) {
+        if (!$this->state->hasCompleted('admin_created')) {
             return redirect()->route('install.admin');
         }
 
-        $cronToken = trimQuotes(config('app.cron_token') ?: env('CRON_TOKEN', ''));
-        $installToken = trimQuotes(config('app.install_token') ?: env('INSTALL_TOKEN', ''));
+        // Read tokens from state (file-based, always available)
+        $cronToken = $this->state->get('cron_token', '');
+        $installToken = $this->state->get('install_token', '');
+
+        // Fallback: read from config/env
+        if (empty($cronToken)) {
+            $cronToken = trimQuotes(config('app.cron_token') ?: env('CRON_TOKEN', ''));
+        }
+        if (empty($installToken)) {
+            $installToken = trimQuotes(config('app.install_token') ?: env('INSTALL_TOKEN', ''));
+        }
 
         // Create lock file
         $lockFile = storage_path('installed.lock');
@@ -490,21 +598,18 @@ class InstallController extends Controller
             $postInstallErrors[] = 'package:discover – ' . $this->sanitizeError($e->getMessage());
         }
 
-        try {
-            Artisan::call('config:cache');
-            Artisan::call('view:cache');
-        } catch (\Exception $e) {
-            $postInstallErrors[] = 'cache rebuild – ' . $this->sanitizeError($e->getMessage());
-        }
+        // Do NOT run config:cache or route:cache here – they fail with
+        // closure routes and can cause issues on shared hosting.
+        // Just clear caches so fresh config is loaded on next request.
 
         if (!empty($postInstallErrors)) {
-            Log::warning('Post-install commands had issues', $postInstallErrors);
+            $this->installerLog('Complete: post-install issues', $postInstallErrors);
         }
 
-        $request->session()->forget([
-            'install_env_written', 'install_migrated', 'install_admin_created',
-            'install_cron_token', 'install_token', 'install_starmap_done',
-        ]);
+        // Clean up installer state file
+        $this->state->cleanup();
+
+        $this->installerLog('Complete: installation finished successfully');
 
         return view('install.complete', compact('cronToken', 'installToken'));
     }
@@ -516,7 +621,15 @@ class InstallController extends Controller
      */
     public function updater(Request $request)
     {
-        $this->reconnectDatabase();
+        try {
+            $this->reconnectDatabase();
+        } catch (\Exception $e) {
+            return view('install.updater', [
+                'stats' => ['stars' => 0, 'planets' => 0, 'users' => 0, 'starter_planets' => 0],
+                'starmapGenerated' => false,
+                'dbError' => $this->sanitizeError($e->getMessage()),
+            ]);
+        }
 
         $stats = [
             'stars' => Star::count(),
@@ -552,6 +665,8 @@ class InstallController extends Controller
         $results = [];
         $errors = [];
 
+        $this->installerLog("Updater: running action '{$action}'");
+
         try {
             switch ($action) {
                 case 'migrate':
@@ -568,9 +683,7 @@ class InstallController extends Controller
                     foreach (['config:clear', 'cache:clear', 'route:clear', 'view:clear'] as $cmd) {
                         Artisan::call($cmd);
                     }
-                    Artisan::call('config:cache');
-                    Artisan::call('view:cache');
-                    $results[] = 'All caches cleared and rebuilt.';
+                    $results[] = 'All caches cleared.';
                     break;
 
                 case 'clear_sessions':
@@ -622,7 +735,7 @@ class InstallController extends Controller
             }
         } catch (\Exception $e) {
             $errors[] = $action . ' failed: ' . $this->sanitizeError($e->getMessage());
-            Log::error("Updater action '{$action}' failed", ['error' => $e->getMessage()]);
+            $this->installerLog("Updater: action '{$action}' FAILED", ['error' => $e->getMessage()]);
         }
 
         return redirect()->route('install.index', $request->only('token'))
@@ -634,15 +747,9 @@ class InstallController extends Controller
 
     /**
      * Check if the installer is unlocked.
-     *
-     * The installer is accessible when:
-     * (a) App is NOT installed (no installed.lock)
-     * (b) storage/install.unlock file exists
-     * (c) Query token matches INSTALL_TOKEN or CRON_TOKEN
      */
     protected function isUnlocked(Request $request): bool
     {
-        // Not installed = always accessible
         if (!$this->isInstalled()) {
             return true;
         }
@@ -652,11 +759,11 @@ class InstallController extends Controller
             return true;
         }
 
-        // Check token
-        $token = $request->query('token', '');
+        // Check token in query string OR POST data
+        $token = $request->input('token', '');
         if (!empty($token)) {
-            $installToken = config('app.install_token') ?: env('INSTALL_TOKEN', '');
-            $cronToken = config('app.cron_token') ?: env('CRON_TOKEN', '');
+            $installToken = trimQuotes(config('app.install_token') ?: env('INSTALL_TOKEN', ''));
+            $cronToken = trimQuotes(config('app.cron_token') ?: env('CRON_TOKEN', ''));
 
             if (!empty($installToken) && hash_equals($installToken, $token)) {
                 return true;
@@ -729,7 +836,6 @@ class InstallController extends Controller
         $permissions = [];
 
         foreach ($dirs as $path => $label) {
-            // Try to create missing dirs
             if (!is_dir($path)) {
                 @mkdir($path, 0775, true);
             }
@@ -829,31 +935,40 @@ class InstallController extends Controller
         return implode("\n", $lines) . "\n";
     }
 
+    /**
+     * Try to read the existing APP_KEY from the .env file.
+     *
+     * Preserving the key across re-installs prevents session invalidation.
+     */
+    protected function getExistingAppKey(): ?string
+    {
+        $envPath = base_path('.env');
+        if (!file_exists($envPath)) {
+            return null;
+        }
+
+        $content = @file_get_contents($envPath);
+        if ($content === false) {
+            return null;
+        }
+
+        if (preg_match('/^APP_KEY=(.+)$/m', $content, $matches)) {
+            $key = trim($matches[1]);
+            // Only reuse if it looks like a valid key
+            if (!empty($key) && strlen($key) > 10 && str_starts_with($key, 'base64:')) {
+                return $key;
+            }
+        }
+
+        return null;
+    }
+
     protected function sanitizeError(string $message): string
     {
         $message = preg_replace('/password[\'"\s]*[:=][\'"\s]*[^\s\'"]*/i', 'password=***', $message);
         $message = preg_replace('/using password: \w+/i', 'using password: ***', $message);
 
         return Str::limit($message, 200);
-    }
-
-    protected function detectSessionDomain(string $host): string
-    {
-        if ($host === 'localhost' || filter_var($host, FILTER_VALIDATE_IP)) {
-            return 'null';
-        }
-
-        $parts = explode('.', $host);
-
-        if (count($parts) === 2) {
-            return '.' . $host;
-        }
-
-        if (count($parts) >= 3) {
-            return '.' . implode('.', array_slice($parts, -2));
-        }
-
-        return 'null';
     }
 
     protected function reconnectDatabase(): void
@@ -865,15 +980,35 @@ class InstallController extends Controller
             // Ignore if .env not found
         }
 
+        // Prefer state file values (always up-to-date during install)
+        $dbHost = $this->state->get('db_host') ?: env('DB_HOST');
+        $dbPort = $this->state->get('db_port') ?: env('DB_PORT');
+        $dbDatabase = $this->state->get('db_database') ?: env('DB_DATABASE');
+        $dbUsername = $this->state->get('db_username') ?: env('DB_USERNAME');
+        $dbPassword = $this->state->get('db_password') ?? env('DB_PASSWORD');
+
         config([
-            'database.connections.mysql.host' => env('DB_HOST'),
-            'database.connections.mysql.port' => env('DB_PORT'),
-            'database.connections.mysql.database' => env('DB_DATABASE'),
-            'database.connections.mysql.username' => env('DB_USERNAME'),
-            'database.connections.mysql.password' => env('DB_PASSWORD'),
+            'database.connections.mysql.host' => $dbHost,
+            'database.connections.mysql.port' => $dbPort,
+            'database.connections.mysql.database' => $dbDatabase,
+            'database.connections.mysql.username' => $dbUsername,
+            'database.connections.mysql.password' => $dbPassword,
         ]);
 
         DB::purge('mysql');
         DB::reconnect('mysql');
+    }
+
+    /**
+     * Log installer events to a dedicated log file.
+     */
+    protected function installerLog(string $message, array $context = []): void
+    {
+        $logPath = storage_path('logs/installer.log');
+        $timestamp = date('Y-m-d H:i:s');
+        $contextStr = !empty($context) ? ' ' . json_encode($context, JSON_UNESCAPED_SLASHES) : '';
+        $line = "[{$timestamp}] {$message}{$contextStr}\n";
+
+        @file_put_contents($logPath, $line, FILE_APPEND);
     }
 }

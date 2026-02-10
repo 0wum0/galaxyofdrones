@@ -36,8 +36,23 @@ class Kernel extends HttpKernel
             \Illuminate\View\Middleware\ShareErrorsFromSession::class,
             \App\Http\Middleware\VerifyCsrfToken::class,
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
-            \Laravel\Passport\Http\Middleware\CreateFreshApiToken::class,
+            \App\Http\Middleware\SafePassportToken::class,
             \App\Http\Middleware\CheckInstalled::class,
+        ],
+
+        // Lightweight middleware group for the installer.
+        // Does NOT include:
+        //   - VerifyCsrfToken (installer routes are token-protected by controller)
+        //   - CreateFreshApiToken / SafePassportToken (Passport may not be installed yet)
+        //   - CheckInstalled (installer handles this itself)
+        // Sessions are started so old() / withErrors() work, but the installer
+        // does NOT rely on sessions for flow state (uses InstallerState file).
+        'installer' => [
+            \App\Http\Middleware\EncryptCookies::class,
+            \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
+            \Illuminate\Session\Middleware\StartSession::class,
+            \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+            \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ],
 
         'api' => [

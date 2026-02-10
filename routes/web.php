@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\InstallController;
 use App\Http\Controllers\CronController;
 use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Admin\UserController as AdminUserController;
@@ -17,27 +16,10 @@ use App\Http\Controllers\Web\VerificationController;
 
 /*
 |--------------------------------------------------------------------------
-| Installer Routes (accessible when not installed, or when unlocked)
+| Installer Routes → moved to routes/installer.php
+| (uses 'installer' middleware group, see RouteServiceProvider)
 |--------------------------------------------------------------------------
 */
-
-Route::group([
-    'prefix' => 'install',
-    'as' => 'install.',
-], function () {
-    Route::get('/', [InstallController::class, 'index'])->name('index');
-    Route::get('/database', [InstallController::class, 'database'])->name('database');
-    Route::post('/test-database', [InstallController::class, 'testDatabase'])->name('test_database');
-    Route::post('/database', [InstallController::class, 'testDatabase'])->name('database_post');
-    Route::post('/environment', [InstallController::class, 'environment'])->name('environment');
-    Route::get('/migrate', [InstallController::class, 'migrate'])->name('migrate');
-    Route::get('/starmap', [InstallController::class, 'starmap'])->name('starmap');
-    Route::post('/starmap', [InstallController::class, 'generateStarmap'])->name('generate_starmap');
-    Route::get('/admin', [InstallController::class, 'admin'])->name('admin');
-    Route::post('/admin', [InstallController::class, 'createAdmin'])->name('create_admin');
-    Route::get('/complete', [InstallController::class, 'complete'])->name('complete');
-    Route::post('/update', [InstallController::class, 'runUpdate'])->name('run_update');
-});
 
 /*
 |--------------------------------------------------------------------------

@@ -168,10 +168,11 @@ return [
     |
     */
 
-    // On shared hosting behind a reverse proxy, the app may not see HTTPS
-    // directly. Setting this to null lets Laravel auto-detect based on the
-    // current request scheme (which TrustProxies makes reliable).
-    'secure' => env('SESSION_SECURE_COOKIE', null),
+    // On shared hosting behind a reverse proxy (Hostinger, etc.) the app may
+    // not see HTTPS directly. Setting this to null lets Laravel auto-detect
+    // based on the current request scheme (which TrustProxies makes reliable).
+    // Using env('... , null') so that .env value "null" → PHP null → auto-detect.
+    'secure' => (($val = env('SESSION_SECURE_COOKIE')) === 'null' || $val === null) ? null : (bool) $val,
 
     /*
     |--------------------------------------------------------------------------
