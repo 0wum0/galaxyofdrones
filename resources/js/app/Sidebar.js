@@ -120,6 +120,11 @@ export default {
                 this.subscribe();
 
                 EventBus.$emit('planet-updated', this.data);
+
+                // Cache the latest planet data so that components mounting
+                // *after* this emit (e.g. Surface after route transition)
+                // can pick it up immediately.
+                EventBus._lastPlanetData = this.data;
             });
         },
 

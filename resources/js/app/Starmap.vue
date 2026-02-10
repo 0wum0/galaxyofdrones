@@ -264,18 +264,25 @@ export default {
 
         objectMarker(latLng, geoJsonPoint) {
             const size = (geoJsonPoint.properties.size + 16) / this.multiplier();
+            const props = geoJsonPoint.properties;
+
+            let className = 'leaflet-icon-object';
+
+            if (props.type === 'planet') {
+                className += ` leaflet-planet leaflet-planet-${props.resource_id || 1} ${props.status}`;
+            } else if (props.type === 'star') {
+                className += ' leaflet-star';
+            }
 
             const options = {
-                className: geoJsonPoint.properties.type === 'planet'
-                    ? `leaflet-icon-object ${geoJsonPoint.properties.status}`
-                    : 'leaflet-icon-object',
+                className,
                 iconSize: [
                     size, size
                 ]
             };
 
             if (this.map.getZoom() >= 8) {
-                options.html = `<span>${geoJsonPoint.properties.name}</span>`;
+                options.html = `<span>${props.name}</span>`;
             }
 
             const marker = L.marker(latLng, {

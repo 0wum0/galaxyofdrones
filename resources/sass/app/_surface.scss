@@ -1,3 +1,8 @@
 .surface {
     display: block;
+    // Ensure the canvas element is visible and fills the parent container.
+    // Without explicit dimensions, the canvas could collapse to 0×0 before
+    // Pixi.js sets the width/height attributes via autoDetectRenderer.
+    width: 100%;
+    height: 100%;
 }

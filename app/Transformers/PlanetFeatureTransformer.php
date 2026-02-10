@@ -33,6 +33,7 @@ class PlanetFeatureTransformer extends Transformer
             'type' => 'Feature',
             'properties' => [
                 'id' => $item->id,
+                'resource_id' => $item->resource_id,
                 'name' => $item->display_name,
                 'type' => 'planet',
                 'size' => 32 + ($item->size * 16),
