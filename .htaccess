@@ -1,10 +1,25 @@
 # Root .htaccess - Safety net when DocumentRoot is the project root (not /public).
 # Ideally, DocumentRoot should point to /public. This file handles the fallback.
+#
+# IMPORTANT: HTTPS enforcement happens HERE (before the /public/ rewrite) so that
+# the redirect URL never contains "/public/" in the path. If the HTTPS redirect
+# were only in public/.htaccess, the rewrite to /public/$1 would run first,
+# making %{REQUEST_URI} = /public/..., and the 301 redirect would expose
+# "/public/" in the browser URL. That breaks Vue Router (history mode, no base)
+# and looks wrong to users.
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
-    # Block access to sensitive directories (return 403)
+    # ── 1. Force HTTPS (before any internal rewrite) ──────────────
+    # Must happen here so the redirect preserves the ORIGINAL request URI
+    # (without the /public/ prefix that the rewrite below would add).
+    RewriteCond %{HTTPS} !=on
+    RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+    RewriteCond %{HTTP:X-Forwarded-Ssl} !=on
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+    # ── 2. Block access to sensitive directories (return 403) ─────
     RewriteRule ^vendor(/.*)?$ - [F,L]
     RewriteRule ^storage(/.*)?$ - [F,L]
     RewriteRule ^bootstrap(/.*)?$ - [F,L]
@@ -19,7 +34,7 @@
     # Block hidden files and directories (.env, .git, .github, etc.)
     RewriteRule (^\.|/\.) - [F,L]
 
-    # Redirect everything else to the public directory
+    # ── 3. Redirect everything else to the public directory ───────
     RewriteCond %{REQUEST_URI} !^/public/
     RewriteRule ^(.*)$ /public/$1 [L]
 </IfModule>
