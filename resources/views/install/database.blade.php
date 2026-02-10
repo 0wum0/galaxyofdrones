@@ -25,27 +25,35 @@
 
         <div class="form-group">
             <label for="db_host">Database Host</label>
-            <input type="text" id="db_host" name="db_host" value="{{ old('db_host', trimQuotes($defaults['db_host'] ?? 'localhost')) }}" required>
+            <input type="text" id="db_host" name="db_host"
+                   value="{{ old('db_host', $defaults['db_host'] ?? 'localhost') }}" required>
         </div>
 
         <div class="form-group">
             <label for="db_port">Database Port</label>
-            <input type="number" id="db_port" name="db_port" value="{{ old('db_port', trimQuotes($defaults['db_port'] ?? '3306')) }}" required>
+            <input type="number" id="db_port" name="db_port"
+                   value="{{ old('db_port', $defaults['db_port'] ?? '3306') }}" required>
         </div>
 
         <div class="form-group">
             <label for="db_database">Database Name</label>
-            <input type="text" id="db_database" name="db_database" value="{{ old('db_database', trimQuotes($defaults['db_database'] ?? '')) }}" required placeholder="e.g. u123456789_galaxy">
+            <input type="text" id="db_database" name="db_database"
+                   value="{{ old('db_database', $defaults['db_database'] ?? '') }}" required
+                   placeholder="e.g. u123456789_galaxy">
         </div>
 
         <div class="form-group">
             <label for="db_username">Database Username</label>
-            <input type="text" id="db_username" name="db_username" value="{{ old('db_username', trimQuotes($defaults['db_username'] ?? '')) }}" required placeholder="e.g. u123456789_admin">
+            <input type="text" id="db_username" name="db_username"
+                   value="{{ old('db_username', $defaults['db_username'] ?? '') }}" required
+                   placeholder="e.g. u123456789_admin">
         </div>
 
         <div class="form-group">
             <label for="db_password">Database Password</label>
-            <input type="password" id="db_password" name="db_password" value="{{ old('db_password', trimQuotes($defaults['db_password'] ?? '')) }}" placeholder="Your database password">
+            <input type="password" id="db_password" name="db_password"
+                   value="{{ old('db_password', $defaults['db_password'] ?? '') }}"
+                   placeholder="Your database password">
         </div>
 
         <div id="testResult" style="display:none;" class="alert"></div>
@@ -63,13 +71,13 @@
 
 <script>
 function testConnection() {
-    const btn = document.getElementById('testBtn');
-    const result = document.getElementById('testResult');
+    var btn = document.getElementById('testBtn');
+    var result = document.getElementById('testResult');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span> Testing...';
     result.style.display = 'none';
 
-    const data = {
+    var data = {
         db_host: document.getElementById('db_host').value,
         db_port: document.getElementById('db_port').value,
         db_database: document.getElementById('db_database').value,
@@ -81,12 +89,11 @@ function testConnection() {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
             'Accept': 'application/json',
         },
         body: JSON.stringify(data),
     })
-    .then(r => {
+    .then(function(r) {
         if (r.status === 419) {
             throw new Error('Session expired (419). Please reload the page and try again.');
         }
@@ -98,17 +105,17 @@ function testConnection() {
         }
         return r.json();
     })
-    .then(data => {
+    .then(function(data) {
         result.style.display = 'block';
         result.className = 'alert ' + (data.success ? 'alert-success' : 'alert-danger');
         result.textContent = data.message;
     })
-    .catch(e => {
+    .catch(function(e) {
         result.style.display = 'block';
         result.className = 'alert alert-danger';
         result.textContent = e.message || 'Connection test failed. Please check your details.';
     })
-    .finally(() => {
+    .finally(function() {
         btn.disabled = false;
         btn.textContent = 'Test Connection';
     });

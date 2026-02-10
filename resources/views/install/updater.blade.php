@@ -21,6 +21,13 @@
     @endforeach
 @endif
 
+@if (!empty($dbError))
+    <div class="alert alert-danger">
+        <strong>Database Connection Error:</strong> {{ $dbError }}<br>
+        <small>Check your .env file DB_* settings or use the "Clear Caches" button below.</small>
+    </div>
+@endif
+
 <div class="card">
     <h2>System Status</h2>
 
@@ -89,7 +96,7 @@
         <form method="POST" action="{{ route('install.run_update', request()->only('token')) }}" style="display:inline;">
             @csrf
             <input type="hidden" name="action" value="cache">
-            <button type="submit" class="btn btn-primary btn-sm">Rebuild All Caches</button>
+            <button type="submit" class="btn btn-primary btn-sm">Clear All Caches</button>
         </form>
 
         <form method="POST" action="{{ route('install.run_update', request()->only('token')) }}" style="display:inline;">
@@ -108,7 +115,7 @@
         <input type="hidden" name="action" value="generate_starmap">
         <div style="display: flex; gap: 12px; align-items: end;">
             <div class="form-group" style="margin-bottom: 0; flex: 1;">
-                <label for="stars_gen">Stars (regenerate)</label>
+                <label for="stars_gen">Stars (full regenerate)</label>
                 <input type="number" id="stars_gen" name="stars" value="2000" min="100" max="5000">
             </div>
             <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('WARNING: This will DELETE all existing starmap data including occupied planets. Continue?')">
@@ -116,6 +123,23 @@
             </button>
         </div>
         <small style="color: #546e7a;">Warning: Regenerating deletes ALL stars, planets and grids. Occupied planets will be lost!</small>
+    </form>
+
+    <hr style="border-color: #1e3a5f; margin: 16px 0;">
+
+    <form method="POST" action="{{ route('install.run_update', request()->only('token')) }}">
+        @csrf
+        <input type="hidden" name="action" value="expand_starmap">
+        <div style="display: flex; gap: 12px; align-items: end;">
+            <div class="form-group" style="margin-bottom: 0; flex: 1;">
+                <label for="stars_expand">Additional Stars (expand)</label>
+                <input type="number" id="stars_expand" name="stars" value="500" min="100" max="2000">
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">
+                Expand Map
+            </button>
+        </div>
+        <small style="color: #546e7a;">Adds more stars/planets without deleting existing ones. Use this if you need more starter slots.</small>
     </form>
 </div>
 
