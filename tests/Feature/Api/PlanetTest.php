@@ -24,6 +24,11 @@ class PlanetTest extends TestCase
     {
         parent::setUp();
 
+        // The CheckInstalled middleware requires this file.
+        if (! file_exists(storage_path('installed.lock'))) {
+            file_put_contents(storage_path('installed.lock'), 'installed');
+        }
+
         $user = User::factory()->create();
 
         $this->actingAs($user);
@@ -264,5 +269,43 @@ class PlanetTest extends TestCase
             ->count();
 
         $this->assertEquals(1, $centralCount, 'Planet must have exactly one central grid slot.');
+    }
+
+    /**
+     * Regression: the grids key in the API response must be a JSON array
+     * (0-indexed), not a JSON object.  The Surface.vue component iterates
+     * over grids with _.forEach which behaves differently on objects.
+     */
+    public function testGridsReturnedAsJsonArray()
+    {
+        $response = $this->getJson('/api/planet')
+            ->assertStatus(200);
+
+        $raw = $response->getContent();
+        $decoded = json_decode($raw, false);
+
+        $this->assertIsArray(
+            $decoded->grids,
+            'grids must be a JSON array, not an object.'
+        );
+    }
+
+    /**
+     * Regression: each grid must include building_id so the Surface
+     * component can distinguish built vs empty grid slots and emit
+     * the correct click event (grid-click vs building-click).
+     */
+    public function testGridsIncludeBuildingId()
+    {
+        $response = $this->getJson('/api/planet')
+            ->assertStatus(200);
+
+        $grids = $response->json('grids');
+
+        $this->assertNotEmpty($grids, 'Grids should not be empty.');
+
+        foreach ($grids as $grid) {
+            $this->assertArrayHasKey('building_id', $grid);
+        }
     }
 }
