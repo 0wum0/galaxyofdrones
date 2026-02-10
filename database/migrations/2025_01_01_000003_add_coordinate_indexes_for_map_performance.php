@@ -68,12 +68,28 @@ return new class extends Migration
 
     /**
      * Check if an index exists on a table.
+     * Supports both MySQL (SHOW INDEX) and SQLite (pragma index_list).
      */
     protected function hasIndex(string $table, string $indexName): bool
     {
         $connection = Schema::getConnection();
-        $databaseName = $connection->getDatabaseName();
+        $driver = $connection->getDriverName();
 
+        if ($driver === 'sqlite') {
+            $indexes = $connection->select(
+                "PRAGMA index_list(`{$table}`)"
+            );
+
+            foreach ($indexes as $index) {
+                if ($index->name === $indexName) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // MySQL / MariaDB
         $indexes = $connection->select(
             "SHOW INDEX FROM `{$table}` WHERE Key_name = ?",
             [$indexName]

@@ -29,7 +29,12 @@ export default Remaining.extend({
 
     methods: {
         openAfterHidden(callback) {
+            let fired = false;
+
             const handler = () => {
+                if (fired) return;
+                fired = true;
+                clearTimeout(timer);
                 callback();
                 EventBus.$off('modal-hidden', handler);
             };
@@ -37,6 +42,11 @@ export default Remaining.extend({
             EventBus.$on('modal-hidden', handler);
 
             this.close();
+
+            // Safety net: if hidden.bs.modal never fires (CSS transition
+            // throttled, mobile browser quirk, etc.), force the callback
+            // after a generous timeout so the UI never gets stuck.
+            const timer = setTimeout(handler, 400);
         },
 
         close() {
