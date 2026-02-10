@@ -23,3 +23,17 @@ mix.options({ processCssUrls: false })
     .vue()
     .version()
     .extract();
+
+/*
+ |--------------------------------------------------------------------------
+ | Leaflet Map Images
+ |--------------------------------------------------------------------------
+ |
+ | Leaflet CSS references images/layers.png, images/layers-2x.png,
+ | images/marker-icon.png etc. relative to the CSS file location.
+ | Since our compiled CSS lives at public/css/app.css, these images
+ | must be placed at public/css/images/.
+ |
+ */
+
+mix.copy('node_modules/leaflet/dist/images', 'public/css/images');
