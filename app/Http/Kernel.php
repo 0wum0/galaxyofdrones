@@ -87,5 +87,9 @@ class Kernel extends HttpKernel
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'admin' => \App\Http\Middleware\AdminMiddleware::class,
         'installed' => \App\Http\Middleware\CheckInstalled::class,
+
+        // Diagnostic / CSRF-fix middlewares (remove once 419 issues are resolved)
+        'log.csrf' => \App\Http\Middleware\LogCsrfContext::class,
+        'no.cache' => \App\Http\Middleware\NoStoreForCsrfPages::class,
     ];
 }
