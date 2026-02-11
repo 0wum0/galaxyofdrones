@@ -99,14 +99,22 @@ function computeTransform(cw, ch, mode) {
         pannable = true;
     }
 
-    // Pan clamp bounds: keep the planet covering the viewport.
-    // If worldSize*scale > containerSize, the excess is pannable range.
+    // Pan clamp bounds: the world image must ALWAYS cover the entire
+    // viewport.  World left edge = tx + panX, must be <= 0.
+    // World right edge = tx + panX + worldW, must be >= cw.
     var worldW = DW * scale;
     var worldH = DH * scale;
-    var minPanX = Math.min(0, cw - worldW - Math.max(0, tx));
-    var maxPanX = Math.max(0, -Math.min(0, tx));
-    var minPanY = Math.min(0, ch - worldH - Math.max(0, ty));
-    var maxPanY = Math.max(0, -Math.min(0, ty));
+
+    // maxPanX: world left edge at 0 → panX = -tx
+    // minPanX: world right edge at cw → panX = cw - worldW - tx
+    var maxPanX = Math.max(0, -tx);
+    var minPanX = Math.min(0, cw - worldW - tx);
+    var maxPanY = Math.max(0, -ty);
+    var minPanY = Math.min(0, ch - worldH - ty);
+
+    // If world fits inside viewport (contain), disable pan.
+    if (minPanX >= maxPanX) { minPanX = 0; maxPanX = 0; }
+    if (minPanY >= maxPanY) { minPanY = 0; maxPanY = 0; }
 
     return {
         scale: scale, tx: tx, ty: ty,
@@ -293,12 +301,16 @@ export default {
             var dy = isoY(rx, ry) * s + oy;
             var dw = TW * s, dh = TH * s;
 
-            // Base tile.
-            ctx.drawImage(this._atlasImg, S.plain.x, S.plain.y, S.plain.w, S.plain.h, dx, dy, dw, dh);
+            var overlay = resolveOverlay(grid, this.planet.resource_id);
+            var hasContent = !!overlay;
 
-            // Overlay.
-            var f = resolveOverlay(grid, this.planet.resource_id);
-            if (f) ctx.drawImage(this._atlasImg, f.x, f.y, f.w, f.h, dx, dy, dw, dh);
+            // Base tile: full opacity if slot has content, subtle if empty.
+            if (!hasContent) ctx.globalAlpha = 0.35;
+            ctx.drawImage(this._atlasImg, S.plain.x, S.plain.y, S.plain.w, S.plain.h, dx, dy, dw, dh);
+            if (!hasContent) ctx.globalAlpha = 1.0;
+
+            // Building/resource/construction overlay (full opacity).
+            if (overlay) ctx.drawImage(this._atlasImg, overlay.x, overlay.y, overlay.w, overlay.h, dx, dy, dw, dh);
 
             // Level.
             if (grid.level) {
