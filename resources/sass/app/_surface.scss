@@ -1,5 +1,10 @@
-// Viewport wrapper — also serves as CSS fallback background layer.
-// JS sets background-image so the planet is visible immediately.
+/* ── Surface viewport ─────────────────────────────────────────
+ * The planet surface renders on a native Canvas 2D (no PixiJS).
+ *
+ * Landscape: canvas fits inside viewport (contain), no scroll.
+ * Portrait:  canvas fills width, height may exceed viewport → scroll.
+ */
+
 .surface-viewport {
     position: absolute;
     top: 0;
@@ -7,26 +12,28 @@
     width: 100%;
     height: 100%;
     z-index: 0;
-    overflow: hidden;
     background-color: #0b0e14;
-    background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
+
+    /* Portrait: allow vertical scroll when canvas is taller than viewport */
+    overflow-x: hidden;
+    overflow-y: auto;
+
+    /* Landscape: no scroll */
+    &.is-landscape {
+        overflow: hidden;
+    }
 }
 
-// The PixiJS <canvas>.
 .surface {
     display: block;
-    width: 100%;
-    height: 100%;
-    // Prevent browser touch handling — we manage pan via PixiJS.
+    /* Size is set by JS via canvas.style.width / canvas.style.height */
     touch-action: none;
     -webkit-touch-callout: none;
     -webkit-user-select: none;
     user-select: none;
 }
 
-// Loading spinner (semi-transparent so CSS bg shines through).
+/* Loading spinner */
 .surface-loading {
     position: absolute;
     top: 0;
@@ -54,7 +61,6 @@
     to { transform: rotate(360deg); }
 }
 
-// Persistent error banner (outside v-if so it stays after spinner hides).
 .surface-error-text {
     position: absolute;
     bottom: 16px;
