@@ -158,6 +158,9 @@ export default {
                 }
             }).catch(err => {
                 console.error('[Surface] Direct API fetch failed:', err);
+                if (!this._destroyed && !this.stage) {
+                    this.errorMessage = 'Failed to load planet data. Please reload.';
+                }
             });
         },
 
@@ -231,10 +234,19 @@ export default {
                     return;
                 }
 
-                this.setup();
-                this.align();
-                this.animate();
-                this.ready = true;
+                try {
+                    this.setup();
+                    this.align();
+                    this.animate();
+                    this.ready = true;
+                } catch (err) {
+                    console.error('[Surface] Render setup error:', err);
+                    // Still mark as ready so the spinner disappears — the
+                    // canvas will show the dark background colour which is
+                    // better than an infinite spinner.
+                    this.ready = true;
+                    this.errorMessage = 'Surface render error. Please reload.';
+                }
             });
 
             // Create the stage and container BEFORE the loader callback
@@ -308,17 +320,25 @@ export default {
 
             const backgroundName = this.backgroundName();
 
+            const safeSetup = () => {
+                try {
+                    this.setup();
+                } catch (err) {
+                    console.error('[Surface] updatePixi setup error:', err);
+                }
+            };
+
             if (!this.loader.resources[backgroundName]) {
                 this._loading = true;
                 this.loader.add(backgroundName, this.background());
                 this.loader.load(() => {
                     this._loading = false;
                     if (!this._destroyed) {
-                        this.setup();
+                        safeSetup();
                     }
                 });
             } else {
-                this.setup();
+                safeSetup();
             }
         },
 
@@ -543,14 +563,28 @@ export default {
         gridTexture(grid) {
             let frame = Sprites.plain;
 
-            if (grid.construction) {
-                frame = Sprites.constructions[grid.construction.building_id];
-            } else if (grid.type === 1) {
-                frame = grid.building_id
-                    ? Sprites.buildings[grid.building_id][this.planet.resource_id]
-                    : Sprites.resources[this.planet.resource_id];
-            } else if (grid.building_id) {
-                frame = Sprites.buildings[grid.building_id];
+            try {
+                if (grid.construction) {
+                    frame = Sprites.constructions[grid.construction.building_id] || Sprites.plain;
+                } else if (grid.type === 1) {
+                    if (grid.building_id) {
+                        const buildingSprite = Sprites.buildings[grid.building_id];
+
+                        if (buildingSprite && typeof buildingSprite === 'object' && !buildingSprite.width) {
+                            // Per-resource sprite map (e.g. building 2 / mine)
+                            frame = buildingSprite[this.planet.resource_id] || Sprites.plain;
+                        } else {
+                            frame = buildingSprite || Sprites.plain;
+                        }
+                    } else {
+                        frame = Sprites.resources[this.planet.resource_id] || Sprites.plain;
+                    }
+                } else if (grid.building_id) {
+                    frame = Sprites.buildings[grid.building_id] || Sprites.plain;
+                }
+            } catch (e) {
+                console.warn('[Surface] gridTexture fallback for grid', grid.id, e.message);
+                frame = Sprites.plain;
             }
 
             return new Texture(this.loader.resources.grid.texture, frame);

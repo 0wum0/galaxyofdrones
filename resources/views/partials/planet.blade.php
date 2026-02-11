@@ -1,4 +1,5 @@
-<planet url="{{ route('api_planet_show', '__planet__') }}" inline-template>
+<planet url="{{ route('api_planet_show', '__planet__') }}"
+        planet-image-url="{{ asset('images/planet-__resource__-bg.png') }}" inline-template>
     <div class="planet modal fade" tabindex="-1">
         <div class="modal-dialog modal-xl">
             <div class="modal-content">
@@ -13,7 +14,11 @@
                 <div class="modal-body">
                     <div class="row">
                         <div class="col-lg-6 text-center">
-                            <span v-if="data.resource_id" class="item" :class="data.resource_id | item('planet')"></span>
+                            <img v-if="planetPreviewUrl"
+                                 :src="planetPreviewUrl"
+                                 class="planet-preview-img"
+                                 alt="Planet">
+                            <span v-else-if="data.resource_id" class="item" :class="data.resource_id | item('planet')"></span>
                         </div>
                         <div class="col-lg-6">
                             <div class="attribute-row separator">
