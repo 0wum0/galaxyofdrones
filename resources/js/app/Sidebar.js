@@ -49,6 +49,21 @@ export default {
         EventBus.$on('prev-planet', this.prevPlanet);
         EventBus.$on('next-planet', this.nextPlanet);
         EventBus.$on('change-planet', planet => { this.selected = planet; });
+
+        // When the Surface component mounts (e.g. after SPA navigation
+        // from the starmap), it fires 'planet-data-request'.  If we
+        // already have planet data, re-emit 'planet-updated' so the
+        // Surface receives it immediately — without waiting for a new
+        // API round-trip.  This is the primary fix for the "blank
+        // surface" bug: the previous approach relied on a stale cache
+        // (EventBus._lastPlanetData) combined with a $nextTick + rAF
+        // deferral that was prone to timing races.
+        EventBus.$on('planet-data-request', () => {
+            if (this.data && this.data.id) {
+                EventBus.$emit('planet-updated', this.data);
+                EventBus._lastPlanetData = this.data;
+            }
+        });
     },
 
     mounted() {

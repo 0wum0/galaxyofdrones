@@ -89,20 +89,34 @@ export default {
 
         EventBus.$on('planet-updated', this.planetUpdated);
 
-        // If planet data was already fetched (cached by Sidebar), use it
-        // immediately.  initPixi is safe to call as soon as the component
-        // is mounted because rendererWidth/Height fall back to the prop
-        // dimensions when the viewport reports 0.
+        // Request planet data from the Sidebar.  Two strategies run in
+        // parallel to maximise reliability across all timing scenarios:
         //
-        // If no cached data is available yet, we simply wait — the Sidebar
-        // will emit 'planet-updated' once its API call completes (either
-        // from its initial created() fetch or from its $route watcher).
-        // If planet data was already fetched (cached by Sidebar), use it.
-        // Defer to nextTick + requestAnimationFrame so the browser has
-        // completed layout and the canvas / viewport have real dimensions.
-        if (EventBus._lastPlanetData) {
-            this.deferInit(EventBus._lastPlanetData);
-        }
+        // 1. If the Sidebar already has data cached (EventBus._lastPlanetData
+        //    or its own this.data), the 'planet-data-request' event causes
+        //    Sidebar to re-emit 'planet-updated' synchronously — which our
+        //    listener above receives immediately.
+        //
+        // 2. If no cached data is available yet (initial page load, API call
+        //    in flight), we rely on the normal 'planet-updated' emission
+        //    from Sidebar once its API call completes.
+        //
+        // Strategy 1 is the primary fix for the "blank surface after SPA
+        // navigation" bug: the old _lastPlanetData + deferInit approach
+        // introduced a $nextTick + requestAnimationFrame gap during which
+        // a racing live 'planet-updated' event could cause the deferred
+        // init to be skipped via the (this.stage || this._loading) guard,
+        // yet the live event's initPixi could also fail silently if the
+        // viewport hadn't finished layout.
+        EventBus.$emit('planet-data-request');
+
+        // Fallback: if neither strategy delivers data within 2 seconds
+        // (e.g. slow API, dropped event), re-request once.
+        this._retryTimer = setTimeout(() => {
+            if (!this._destroyed && !this.stage && !this._loading) {
+                EventBus.$emit('planet-data-request');
+            }
+        }, 2000);
     },
 
     beforeDestroy() {
@@ -110,33 +124,15 @@ export default {
 
         EventBus.$off('planet-updated', this.planetUpdated);
 
-        this._destroyed = true;
+        if (this._retryTimer) {
+            clearTimeout(this._retryTimer);
+            this._retryTimer = undefined;
+        }
+
         this.destroyPixi();
     },
 
     methods: {
-        /**
-         * Defer planet data handling until the browser has completed at
-         * least one layout pass.  This prevents PixiJS from creating a
-         * renderer with stale/zero viewport dimensions — the most common
-         * cause of the "blank surface" bug after an SPA route transition.
-         */
-        deferInit(planet) {
-            this.$nextTick(() => {
-                if (this._destroyed) return;
-                requestAnimationFrame(() => {
-                    if (this._destroyed) return;
-                    // If a live planet-updated event already triggered
-                    // initPixi while we were waiting, skip the deferred
-                    // call to avoid overwriting fresh data or double-init.
-                    if (this.stage || this._loading) return;
-                    // Re-read viewport now that layout is stable.
-                    this.$viewport = $(this.$el).parent();
-                    this.planetUpdated(planet);
-                });
-            });
-        },
-
         planetUpdated(planet) {
             if (this._destroyed) {
                 return;
@@ -145,7 +141,20 @@ export default {
             this.planet = planet;
 
             if (!this.stage && !this._loading) {
-                this.initPixi();
+                // Defer PixiJS initialisation to $nextTick + rAF so the
+                // browser has finished layout and the canvas / viewport
+                // have real dimensions.  The guard inside the rAF callback
+                // prevents double-init if another event fires in between.
+                this.$nextTick(() => {
+                    if (this._destroyed) return;
+                    requestAnimationFrame(() => {
+                        if (this._destroyed) return;
+                        if (this.stage || this._loading) return;
+                        // Re-read viewport now that layout is stable.
+                        this.$viewport = $(this.$el).parent();
+                        this.initPixi();
+                    });
+                });
             } else if (this.stage) {
                 this.updatePixi();
             }
@@ -191,6 +200,9 @@ export default {
                 this.animate();
             });
 
+            // Create the stage and container BEFORE the loader callback
+            // can fire.  This guarantees they are available when setup()
+            // runs, regardless of how quickly the Loader resolves.
             this.stage = new Container();
             this.container = new Container();
             this.container.interactive = true;
@@ -205,12 +217,18 @@ export default {
             this.container.on('touchendoutside', this.mouseUp);
             this.stage.addChild(this.container);
 
-            this.renderer = autoDetectRenderer({
-                height: this.rendererHeight(),
-                backgroundColor: 0x0b0e14,
-                view: this.$el,
-                width: this.rendererWidth()
-            });
+            try {
+                this.renderer = autoDetectRenderer({
+                    height: this.rendererHeight(),
+                    backgroundColor: 0x0b0e14,
+                    view: this.$el,
+                    width: this.rendererWidth()
+                });
+            } catch (e) {
+                console.error('[Surface] Failed to create PixiJS renderer:', e);
+                this.destroyPixi();
+                return;
+            }
 
             window.addEventListener('resize', this.resize);
         },
