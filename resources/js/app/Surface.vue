@@ -1,5 +1,5 @@
 <template>
-    <div class="surface-viewport">
+    <div class="surface-viewport" ref="viewport">
         <canvas ref="canvas" class="surface"></canvas>
         <div v-if="!ready" class="surface-loading">
             <div class="surface-spinner"></div>
@@ -102,19 +102,16 @@ export default {
         EventBus.$on('planet-updated', this.planetUpdated);
 
         // Strategy 1: Request cached data from Sidebar synchronously.
-        // If the Sidebar already has planet data (e.g. after SPA navigation
-        // from starmap), it re-emits 'planet-updated' immediately.
         EventBus.$emit('planet-data-request');
 
-        // Strategy 2: If no data arrived from Sidebar (e.g. first page load,
-        // API still in flight), fall back to a direct API fetch.
+        // Strategy 2: Direct API fetch after 1.5 s.
         this._apiTimer = setTimeout(() => {
             if (!this._destroyed && !this.stage && !this._loading) {
                 this.fetchPlanetDirect();
             }
         }, 1500);
 
-        // Strategy 3: Final EventBus retry after 4 seconds.
+        // Strategy 3: Final EventBus retry after 4 s.
         this._retryTimer = setTimeout(() => {
             if (!this._destroyed && !this.stage && !this._loading) {
                 EventBus.$emit('planet-data-request');
@@ -147,10 +144,49 @@ export default {
 
     methods: {
         /**
-         * Direct API fetch as fallback when EventBus doesn't deliver data.
-         * This handles the case where the Sidebar's initial API call hasn't
-         * completed yet (first page load at /).
+         * Convert an absolute URL to a root-relative path.
+         *
+         * The PixiJS resource-loader adds crossOrigin='anonymous' to any
+         * URL it considers cross-origin.  If APP_URL uses a different
+         * protocol (http vs https) or a slightly different host than the
+         * actual page, the loader treats same-server images as cross-
+         * origin.  The browser then makes a CORS request; if the server
+         * doesn't reply with Access-Control-Allow-Origin the image either
+         * fails to load or loads as a "tainted" texture that WebGL cannot
+         * use — resulting in black/invisible sprites.
+         *
+         * Stripping the origin and keeping only the pathname + search
+         * guarantees same-origin treatment, so crossOrigin stays empty
+         * and WebGL can use the texture without any CORS requirement.
          */
+        toLocalPath(url) {
+            if (!url) return url;
+
+            try {
+                const parsed = new URL(url, window.location.origin);
+                return parsed.pathname + parsed.search;
+            } catch (e) {
+                // If URL parsing fails, try simple regex strip
+                return url.replace(/^https?:\/\/[^/]+/, '');
+            }
+        },
+
+        /**
+         * Set a CSS background-image on the viewport element as a visual
+         * fallback.  Even if PixiJS rendering fails completely the user
+         * sees the planet image instead of a solid black screen.
+         */
+        applyCssBackground() {
+            if (!this.planet.resource_id || !this.$refs.viewport) return;
+
+            const url = this.toLocalPath(this.background());
+            const el = this.$refs.viewport;
+
+            el.style.backgroundImage = `url(${url})`;
+            el.style.backgroundSize = 'cover';
+            el.style.backgroundPosition = 'center';
+        },
+
         fetchPlanetDirect() {
             axios.get('/api/planet').then(response => {
                 if (!this._destroyed && response.data && response.data.id) {
@@ -171,20 +207,16 @@ export default {
 
             this.planet = planet;
 
+            // Apply CSS fallback background immediately — visible while
+            // PixiJS loads and also if WebGL rendering fails entirely.
+            this.applyCssBackground();
+
             if (!this.stage && !this._loading) {
-                // Call initPixi() directly — no $nextTick + rAF deferral.
-                // The rendererWidth/Height methods fall back to the prop
-                // dimensions (1920×1080) if the viewport hasn't finished
-                // layout yet.  The resize() handler will correct dimensions
-                // once layout stabilises.
                 this.$viewport = $(this.$el);
                 this.initPixi();
             } else if (this.stage) {
                 this.updatePixi();
             }
-            // If _loading is true, initPixi is still running. The latest
-            // planet data is stored in this.planet, so when setup() fires
-            // it will use the current data automatically.
         },
 
         initPixi() {
@@ -195,16 +227,30 @@ export default {
 
             this.loader = new Loader();
 
-            // Error handler: log and continue so the load callback still fires.
+            // Log + continue on per-resource errors.
             this.loader.onError.add((error, _loader, resource) => {
-                console.error('[Surface] Failed to load:', resource.url, error);
+                console.error('[Surface] Loader error for', resource.url, error);
             });
 
-            this.loader.add(this.backgroundName(), this.background());
-            this.loader.add('grid', this.gridTextureAtlas);
+            // Convert URLs to root-relative paths to avoid cross-origin /
+            // mixed-content issues with the PixiJS resource-loader.
+            const bgUrl = this.toLocalPath(this.background());
+            const gridUrl = this.toLocalPath(this.gridTextureAtlas);
 
-            // Safety timeout: if the loader never fires its callback (e.g.
-            // network hang, stuck XHR), destroy and retry.
+            // Add resources with explicit crossOrigin='' to prevent the
+            // loader from adding 'anonymous' (which triggers CORS).
+            this.loader.add({
+                name: this.backgroundName(),
+                url: bgUrl,
+                crossOrigin: ''
+            });
+            this.loader.add({
+                name: 'grid',
+                url: gridUrl,
+                crossOrigin: ''
+            });
+
+            // Safety timeout: 15 s.
             this._loadTimeout = setTimeout(() => {
                 if (this._loading && !this._destroyed) {
                     console.error('[Surface] Texture loading timed out — retrying.');
@@ -223,12 +269,35 @@ export default {
 
                 if (this._destroyed) return;
 
-                // Verify that critical resources loaded successfully.
                 const bgResource = this.loader.resources[this.backgroundName()];
                 const gridResource = this.loader.resources.grid;
 
                 if (!bgResource || bgResource.error || !gridResource || gridResource.error) {
-                    console.error('[Surface] Critical texture(s) failed to load — retrying.');
+                    console.error('[Surface] Critical texture(s) failed to load —',
+                        'bg:', bgResource ? (bgResource.error || 'ok') : 'missing',
+                        'grid:', gridResource ? (gridResource.error || 'ok') : 'missing');
+                    this.destroyPixi();
+                    this.retryInit();
+                    return;
+                }
+
+                // Verify the textures have real dimensions. A 0×0 texture
+                // means the image loaded but is unusable (tainted, corrupt,
+                // or WebGL rejected it).
+                const bgTex = bgResource.texture;
+                const gridTex = gridResource.texture;
+
+                if (!bgTex || bgTex.width < 1 || bgTex.height < 1) {
+                    console.error('[Surface] Background texture has no dimensions:',
+                        bgTex ? `${bgTex.width}×${bgTex.height}` : 'null');
+                    this.destroyPixi();
+                    this.retryInit();
+                    return;
+                }
+
+                if (!gridTex || gridTex.width < 1 || gridTex.height < 1) {
+                    console.error('[Surface] Grid texture has no dimensions:',
+                        gridTex ? `${gridTex.width}×${gridTex.height}` : 'null');
                     this.destroyPixi();
                     this.retryInit();
                     return;
@@ -241,17 +310,13 @@ export default {
                     this.ready = true;
                 } catch (err) {
                     console.error('[Surface] Render setup error:', err);
-                    // Still mark as ready so the spinner disappears — the
-                    // canvas will show the dark background colour which is
-                    // better than an infinite spinner.
                     this.ready = true;
                     this.errorMessage = 'Surface render error. Please reload.';
                 }
             });
 
-            // Create the stage and container BEFORE the loader callback
-            // can fire.  This guarantees they are available when setup()
-            // runs, regardless of how quickly the Loader resolves.
+            // Create stage / container / renderer synchronously (before
+            // the async loader callback can fire).
             this.stage = new Container();
             this.container = new Container();
             this.container.interactive = true;
@@ -283,14 +348,14 @@ export default {
             window.addEventListener('resize', this.resize);
         },
 
-        /**
-         * Retry initPixi() with exponential backoff.
-         */
         retryInit() {
             this.retryCount += 1;
 
             if (this.retryCount > this.maxRetries) {
                 console.error(`[Surface] Max retries reached (${this.maxRetries}).`);
+                // Remove the loading overlay so the CSS fallback background
+                // is visible instead of an endless spinner.
+                this.ready = true;
                 this.errorMessage = 'Surface could not be loaded. Please reload the page.';
                 return;
             }
@@ -305,13 +370,10 @@ export default {
         },
 
         updatePixi() {
-            // Guard: don't modify the loader while it's still loading.
             if (this._loading) {
                 return;
             }
 
-            // If the grid sprite sheet never loaded (e.g. previous initPixi
-            // failed), we cannot create grid textures.  Reset and retry.
             if (!this.loader || !this.loader.resources.grid || this.loader.resources.grid.error) {
                 this.destroyPixi();
                 this.initPixi();
@@ -330,7 +392,12 @@ export default {
 
             if (!this.loader.resources[backgroundName]) {
                 this._loading = true;
-                this.loader.add(backgroundName, this.background());
+                const bgUrl = this.toLocalPath(this.background());
+                this.loader.add({
+                    name: backgroundName,
+                    url: bgUrl,
+                    crossOrigin: ''
+                });
                 this.loader.load(() => {
                     this._loading = false;
                     if (!this._destroyed) {
@@ -486,8 +553,6 @@ export default {
         },
 
         rendererWidth() {
-            // Use the viewport width if available, otherwise fall back to
-            // the component prop so PixiJS always has valid dimensions.
             const vpWidth = this.$viewport ? this.$viewport.width() : 0;
             return vpWidth > 1 ? vpWidth : this.width;
         },
@@ -571,7 +636,6 @@ export default {
                         const buildingSprite = Sprites.buildings[grid.building_id];
 
                         if (buildingSprite && typeof buildingSprite === 'object' && !buildingSprite.width) {
-                            // Per-resource sprite map (e.g. building 2 / mine)
                             frame = buildingSprite[this.planet.resource_id] || Sprites.plain;
                         } else {
                             frame = buildingSprite || Sprites.plain;
