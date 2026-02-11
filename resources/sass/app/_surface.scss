@@ -1,4 +1,6 @@
-/* Surface viewport — planet canvas container */
+/* Surface viewport — sits inside .container-app which has the starmap
+ * background.  MUST be transparent so the starmap shows around the
+ * planet canvas (the canvas itself draws the planet terrain). */
 .surface-viewport {
     position: absolute;
     top: 0;
@@ -7,12 +9,11 @@
     height: 100%;
     z-index: 0;
     overflow: hidden;
-    background: #0b0e14;
+    background: transparent;
 }
 
 .surface {
     display: block;
-    /* Size set by JS via style.width/height for exact DPR control */
     touch-action: none;
     -webkit-touch-callout: none;
     -webkit-user-select: none;
