@@ -71,10 +71,6 @@ export default {
     },
 
     methods: {
-        /**
-         * Convert absolute URL to root-relative path so the PixiJS Loader
-         * treats it as same-origin (no crossOrigin='anonymous' header).
-         */
         localUrl: function (url) {
             if (!url) return url;
             try { return new URL(url, location.origin).pathname; }
@@ -117,14 +113,13 @@ export default {
 
             if (this._hasPlanetData && this.stage) {
                 this.planet = planet;
-                try { this.buildScene(); } catch (e) { /* keep old scene */ }
+                try { this.buildScene(); } catch (e) { /* keep old */ }
                 return;
             }
 
             this._hasPlanetData = true;
             this.planet = planet;
 
-            // CSS fallback background.
             if (this.$refs.viewport)
                 this.$refs.viewport.style.backgroundImage = 'url(' + this.bgUrl() + ')';
 
@@ -132,19 +127,6 @@ export default {
         },
 
         /* ── PixiJS init ─────────────────────────────────────── */
-        /**
-         * Use the PixiJS Loader with root-relative URLs.
-         *
-         * The Loader creates BaseTexture + Texture objects internally and
-         * handles sprite-atlas frame sub-regions correctly (the previous
-         * "native Image + new BaseTexture" approach produced textures
-         * where the frame/UV was NOT applied, causing the entire sprite
-         * sheet to render in every grid slot).
-         *
-         * Root-relative URLs (via localUrl()) prevent the Loader from
-         * adding crossOrigin='anonymous' which caused CORS/tainted-canvas
-         * failures in earlier iterations.
-         */
         initPixi: function () {
             if (this._destroyed || this._loading) return;
             this._loading = true;
@@ -155,38 +137,35 @@ export default {
             var gridUrl = this.localUrl(this.gridTextureAtlas);
 
             this.loader = new PIXI.Loader();
-
-            // Add resources — crossOrigin explicitly empty so the Loader
-            // does NOT send 'anonymous' (which triggers CORS).
             this.loader.add({ name: bgKey,  url: bgUrl,   crossOrigin: '' });
             this.loader.add({ name: 'grid', url: gridUrl, crossOrigin: '' });
 
             var self = this;
             this.loader.load(function (_, resources) {
-                self._loading = false;
-                if (self._destroyed) return;
+                if (self._destroyed) { self._loading = false; return; }
 
                 var bgRes   = resources[bgKey];
                 var gridRes = resources.grid;
 
                 if (!bgRes || bgRes.error || !gridRes || gridRes.error) {
-                    console.error('[Surface] texture load failed',
-                        bgRes && bgRes.error, gridRes && gridRes.error);
+                    self._loading = false;
                     self.errorMessage = 'Textures could not be loaded.';
                     self.ready = true;
                     return;
                 }
 
                 try {
-                    self._bgTexture   = bgRes.texture;
-                    self._gridTexture = gridRes.texture;
+                    self._bgTexture      = bgRes.texture;
+                    self._gridBaseTexture = gridRes.texture.baseTexture;
                     self.createRenderer();
                     self.buildScene();
                     self.startLoop();
-                    self.ready = true;
                 } catch (err) {
                     console.error('[Surface] init error:', err);
                     self.errorMessage = 'Renderer error: ' + err.message;
+                } finally {
+                    // ALWAYS hide the spinner, even if grid creation threw.
+                    self._loading = false;
                     self.ready = true;
                 }
             });
@@ -198,13 +177,10 @@ export default {
             this.container.interactive = true;
             this.container.interactiveChildren = true;
 
-            var evMap = {
-                pointerdown: this.onDragStart, pointermove: this.onDragMove,
-                pointerup: this.onDragEnd, pointerupoutside: this.onDragEnd,
-                touchstart: this.onDragStart, touchmove: this.onDragMove,
-                touchend: this.onDragEnd, touchendoutside: this.onDragEnd
-            };
-            for (var ev in evMap) this.container.on(ev, evMap[ev]);
+            this.container.on('pointerdown', this.onDragStart);
+            this.container.on('pointermove', this.onDragMove);
+            this.container.on('pointerup', this.onDragEnd);
+            this.container.on('pointerupoutside', this.onDragEnd);
 
             this.stage.addChild(this.container);
 
@@ -215,6 +191,60 @@ export default {
             });
 
             window.addEventListener('resize', this.onResize);
+        },
+
+        /* ══════════════════════════════════════════════════════
+         *  Sub-texture helper.
+         *
+         *  WHY this exists:  new PIXI.Texture(baseTexture, frame) passes
+         *  the frame as a constructor argument.  In PixiJS 5.3.x the
+         *  constructor stores it in _frame but only calls the .frame
+         *  SETTER (which computes UVs) under specific valid-state
+         *  conditions.  When those conditions aren't met the UVs stay
+         *  at their default (= full texture), which is exactly the
+         *  "whole sprite-sheet in every tile" bug seen in Chrome.
+         *
+         *  The fix:  create the Texture WITHOUT a frame first (→ it
+         *  covers the full baseTexture).  Then EXPLICITLY set .frame
+         *  via the setter.  The setter always calls updateUvs() and
+         *  always clips to the rectangle.
+         * ══════════════════════════════════════════════════════ */
+        cutFrame: function (x, y, w, h) {
+            var tex = new PIXI.Texture(this._gridBaseTexture);
+            tex.frame = new PIXI.Rectangle(x, y, w, h);
+            return tex;
+        },
+
+        /**
+         * Resolve the atlas coordinates for a grid slot and return
+         * a properly cropped Texture.  Uses raw numeric values from
+         * Sprites.js rectangles (reading .x/.y/.width/.height) and
+         * feeds them into cutFrame() which always produces correct UVs.
+         */
+        gridTexture: function (grid) {
+            var r = this.pickFrame(grid);
+            return this.cutFrame(r.x, r.y, r.width, r.height);
+        },
+
+        pickFrame: function (grid) {
+            var f = Sprites.plain;
+            try {
+                if (grid.construction) {
+                    f = Sprites.constructions[grid.construction.building_id] || f;
+                } else if (grid.type === 1) {
+                    if (grid.building_id) {
+                        var bs = Sprites.buildings[grid.building_id];
+                        if (bs && typeof bs === 'object' && !bs.width) {
+                            f = bs[this.planet.resource_id] || f;
+                        } else { f = bs || f; }
+                    } else {
+                        f = Sprites.resources[this.planet.resource_id] || f;
+                    }
+                } else if (grid.building_id) {
+                    f = Sprites.buildings[grid.building_id] || f;
+                }
+            } catch (e) { /* default */ }
+            return f;
         },
 
         /* ── scene ───────────────────────────────────────────── */
@@ -241,22 +271,8 @@ export default {
             this.alignContainer();
         },
 
-        /**
-         * Create a single grid slot sprite from the atlas.
-         *
-         * The key insight: Texture sub-regions are created via
-         *   new PIXI.Texture(baseTexture, frameRectangle)
-         * using the Loader-created baseTexture (this._gridTexture.baseTexture)
-         * which has correct dimensions and is already uploaded to the GPU.
-         * The frame rectangles from Sprites.js are cloned to prevent any
-         * shared-mutation issues.
-         */
         makeSlot: function (grid) {
-            var frame = this.pickFrame(grid);
-            var tex = new PIXI.Texture(
-                this._gridTexture.baseTexture,
-                frame.clone()
-            );
+            var tex = this.gridTexture(grid);
             var sprite = new PIXI.Sprite(tex);
 
             sprite.x = this.gridX(grid);
@@ -285,27 +301,6 @@ export default {
 
             this.addTimer(grid, sprite);
             return sprite;
-        },
-
-        pickFrame: function (grid) {
-            var f = Sprites.plain;
-            try {
-                if (grid.construction) {
-                    f = Sprites.constructions[grid.construction.building_id] || f;
-                } else if (grid.type === 1) {
-                    if (grid.building_id) {
-                        var bs = Sprites.buildings[grid.building_id];
-                        if (bs && typeof bs === 'object' && !bs.width) {
-                            f = bs[this.planet.resource_id] || f;
-                        } else { f = bs || f; }
-                    } else {
-                        f = Sprites.resources[this.planet.resource_id] || f;
-                    }
-                } else if (grid.building_id) {
-                    f = Sprites.buildings[grid.building_id] || f;
-                }
-            } catch (e) { /* default */ }
-            return f;
         },
 
         addTimer: function (grid, slot) {
@@ -412,7 +407,7 @@ export default {
             if (this.stage)     this.stage.destroy(true);
             if (this.loader)    this.loader.destroy();
             this.renderer = this.container = this.stage = this.loader = undefined;
-            this._bgTexture = this._gridTexture = undefined;
+            this._bgTexture = this._gridBaseTexture = undefined;
             PIXI.utils.destroyTextureCache();
             window.removeEventListener('resize', this.onResize);
         }
