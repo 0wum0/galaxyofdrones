@@ -26,6 +26,13 @@
     width: 100%;
     height: 100%;
     background: transparent;
+    // Prevent the browser from handling touch gestures (scroll, pinch-
+    // zoom) on the canvas — we handle panning ourselves via PixiJS.
+    touch-action: none;
+    // Prevent iOS Safari long-press / callout menu on canvas.
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 // Loading overlay — semi-transparent so the CSS planet background
