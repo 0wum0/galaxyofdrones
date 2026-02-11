@@ -1,3 +1,13 @@
+.planet-preview-img {
+    display: block;
+    width: 100%;
+    max-width: 400px;
+    height: auto;
+    margin: 0 auto 10px;
+    border-radius: 4px;
+    object-fit: cover;
+}
+
 .modal {
     &-body .row .item-sm {
         margin-right: 5px;

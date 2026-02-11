@@ -176,4 +176,80 @@ class SurfaceRouteTest extends TestCase
         $this->assertStringContainsString('fetchPlanetDirect', $content, 'app.js must contain the direct API fallback.');
         $this->assertStringContainsString('surface-loading', $content, 'app.js must contain the loading indicator.');
     }
+
+    /**
+     * The surface page must include the planet-image-url prop for the
+     * planet modal preview image.
+     */
+    public function testSurfacePageIncludesPlanetImageUrlProp()
+    {
+        $user = $this->createStartedUser();
+        $this->actingAs($user);
+
+        $this->get('/')
+            ->assertStatus(200)
+            ->assertSee('planet-image-url=');
+    }
+
+    /**
+     * The compiled JS must contain the planetPreviewUrl computed property
+     * and the gridTexture fallback error handling.
+     */
+    public function testCompiledJsContainsNewFixes()
+    {
+        $appJs = public_path('js/app.js');
+        $content = file_get_contents($appJs);
+
+        $this->assertStringContainsString('planetPreviewUrl', $content, 'app.js must contain the planetPreviewUrl computed property.');
+        $this->assertStringContainsString('planetImageUrl', $content, 'app.js must contain the planetImageUrl prop.');
+        $this->assertStringContainsString('gridTexture fallback', $content, 'app.js must contain the gridTexture error fallback.');
+        $this->assertStringContainsString('Render setup error', $content, 'app.js must contain the render setup error handler.');
+    }
+
+    /**
+     * The compiled CSS must contain the planet-preview-img class for the
+     * modal preview image styling.
+     */
+    public function testCompiledCssContainsPlanetPreviewStyle()
+    {
+        $appCss = public_path('css/app.css');
+        $this->assertFileExists($appCss, 'public/css/app.css must exist.');
+
+        $content = file_get_contents($appCss);
+        $this->assertStringContainsString('planet-preview-img', $content, 'app.css must contain the planet-preview-img style.');
+    }
+
+    /**
+     * The planet show API (used by the modal) must return resource_id
+     * so the modal can display the correct preview image.
+     */
+    public function testPlanetShowApiReturnsResourceId()
+    {
+        $user = $this->createStartedUser();
+        $this->actingAs($user);
+
+        $planetId = $user->current_id;
+
+        $response = $this->getJson("/api/planet/{$planetId}")
+            ->assertStatus(200)
+            ->assertJsonStructure(['id', 'resource_id']);
+
+        $resourceId = $response->json('resource_id');
+        $this->assertNotNull($resourceId, 'Planet show API must return resource_id.');
+        $this->assertGreaterThanOrEqual(1, $resourceId, 'resource_id must be >= 1.');
+    }
+
+    /**
+     * Planet background images must be valid PNGs for all 7 resource types.
+     * The planet modal preview <img> tag loads these directly.
+     */
+    public function testPlanetPreviewImagesAreValidPng()
+    {
+        for ($i = 1; $i <= 7; $i++) {
+            $path = public_path("images/planet-{$i}-bg.png");
+            $this->assertFileExists($path);
+            $size = filesize($path);
+            $this->assertGreaterThan(1000, $size, "planet-{$i}-bg.png must be a valid image (>1KB).");
+        }
+    }
 }

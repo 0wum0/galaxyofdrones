@@ -2,7 +2,7 @@ import { EventBus } from '../event-bus';
 import Modal from './Modal';
 
 export default Modal.extend({
-    props: ['url'],
+    props: ['url', 'planetImageUrl'],
 
     data() {
         return {
@@ -44,6 +44,14 @@ export default Modal.extend({
 
         geometry() {
             return this.geoJsonPoint.geometry;
+        },
+
+        planetPreviewUrl() {
+            if (this.data && this.data.resource_id && this.planetImageUrl) {
+                return this.planetImageUrl.replace('__resource__', this.data.resource_id);
+            }
+
+            return null;
         }
     },
 
