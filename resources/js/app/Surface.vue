@@ -16,13 +16,9 @@
 import { EventBus } from '../event-bus';
 
 /* ═══════════════════════════════════════════════════════════════
- *  SPRITE ATLAS DEFINITIONS  (from Sprites.js, as plain data)
- *
- *  We read the raw numbers only — no dependency on PIXI.Rectangle.
- *  Each entry: { x, y, w, h } = source region in sprite-grid.png
+ *  SPRITE ATLAS DATA  (plain numbers, no PIXI dependency)
  * ═══════════════════════════════════════════════════════════════ */
 var S = {
-    plain: { x: 0, y: 0, w: 320, h: 200 },
     resources: {
         1: { x: 320, y: 0, w: 320, h: 200 },
         2: { x: 640, y: 0, w: 320, h: 200 },
@@ -34,7 +30,7 @@ var S = {
     },
     buildings: {
         1:  { x: 640, y: 200, w: 320, h: 200 },
-        2:  { 1: { x: 960, y: 200, w: 320, h: 200 }, 2: { x: 1280, y: 200, w: 320, h: 200 }, 3: { x: 1600, y: 200, w: 320, h: 200 }, 4: { x: 0, y: 400, w: 320, h: 200 }, 5: { x: 320, y: 400, w: 320, h: 200 }, 6: { x: 640, y: 400, w: 320, h: 200 }, 7: { x: 960, y: 400, w: 320, h: 200 } },
+        2:  { 1:{x:960,y:200,w:320,h:200}, 2:{x:1280,y:200,w:320,h:200}, 3:{x:1600,y:200,w:320,h:200}, 4:{x:0,y:400,w:320,h:200}, 5:{x:320,y:400,w:320,h:200}, 6:{x:640,y:400,w:320,h:200}, 7:{x:960,y:400,w:320,h:200} },
         3:  { x: 1280, y: 400, w: 320, h: 200 },
         4:  { x: 1600, y: 400, w: 320, h: 200 },
         5:  { x: 0, y: 600, w: 320, h: 200 },
@@ -45,59 +41,56 @@ var S = {
         10: { x: 1600, y: 600, w: 320, h: 200 }
     },
     constructions: {
-        1: { x: 0, y: 800, w: 320, h: 200 }, 2: { x: 320, y: 800, w: 320, h: 200 },
-        3: { x: 640, y: 800, w: 320, h: 200 }, 4: { x: 960, y: 800, w: 320, h: 200 },
-        5: { x: 1280, y: 800, w: 320, h: 200 }, 6: { x: 1600, y: 800, w: 320, h: 200 },
-        7: { x: 0, y: 1000, w: 320, h: 200 }, 8: { x: 320, y: 1000, w: 320, h: 200 },
-        9: { x: 640, y: 1000, w: 320, h: 200 }, 10: { x: 960, y: 1000, w: 320, h: 200 }
+        1:{x:0,y:800,w:320,h:200}, 2:{x:320,y:800,w:320,h:200},
+        3:{x:640,y:800,w:320,h:200}, 4:{x:960,y:800,w:320,h:200},
+        5:{x:1280,y:800,w:320,h:200}, 6:{x:1600,y:800,w:320,h:200},
+        7:{x:0,y:1000,w:320,h:200}, 8:{x:320,y:1000,w:320,h:200},
+        9:{x:640,y:1000,w:320,h:200}, 10:{x:960,y:1000,w:320,h:200}
     }
 };
 
-/* Tile constants */
 var TW = 320, TH = 200;
-var HALF_TW = TW / 2;   // 160
-var HALF_TH = TH / 2;   // 100
-
-/* Design size — matches the background images */
 var DW = 1920, DH = 1080;
 
-/* Isometric placement within design space (same as original code) */
 function isoX(rx, ry) { return (rx - ry + 4) * 162 + (DW - 1608) / 2; }
 function isoY(rx, ry) { return (rx + ry) * 81 + (DH - 888) / 2; }
 
-/* Isometric diamond hit-test polygon (in tile-local coords) */
 function pointInTile(px, py) {
-    // Diamond: (0,120) → (160,40) → (320,120) → (160,200)
-    // Half-space tests:
     var cx = px - 160, cy = py - 120;
     return Math.abs(cx) / 160 + Math.abs(cy) / 80 <= 1;
 }
 
-/* Resolve which atlas frame to draw for a grid slot */
+/**
+ * Resolve sprite frame ONLY for slots that have visible content.
+ * Returns null for empty/unbuilt slots → caller skips rendering.
+ */
 function resolveFrame(grid, resourceId) {
-    var f = S.plain;
     try {
+        // 1) Under construction → construction ghost sprite.
         if (grid.construction) {
-            f = S.constructions[grid.construction.building_id] || f;
-        } else if (grid.type === 1) {
-            if (grid.building_id) {
-                var bs = S.buildings[grid.building_id];
-                if (bs && bs.w) { f = bs; }
-                else if (bs) { f = bs[resourceId] || bs[1] || f; }
-            } else {
-                f = S.resources[resourceId] || f;
-            }
-        } else if (grid.building_id) {
-            var b = S.buildings[grid.building_id];
-            if (b && b.w) { f = b; }
-            else if (b) { f = b[resourceId] || b[1] || f; }
+            return S.constructions[grid.construction.building_id] || null;
         }
-    } catch (e) { f = S.plain; }
-    if (!f || !f.w) f = S.plain;
-    return f;
+
+        // 2) Has a building → building sprite.
+        if (grid.building_id) {
+            var b = S.buildings[grid.building_id];
+            if (!b) return null;
+            if (b.w) return b;                          // direct rectangle
+            return b[resourceId] || b[1] || null;       // nested per-resource
+        }
+
+        // 3) Resource slot (type 1) WITHOUT building → resource crystal.
+        if (grid.type === 1) {
+            return S.resources[resourceId] || null;
+        }
+
+        // 4) Empty plain/central slot → render NOTHING.
+        return null;
+    } catch (e) {
+        return null;
+    }
 }
 
-/* Load image → Promise */
 function loadImg(url) {
     return new Promise(function (resolve, reject) {
         var img = new Image();
@@ -122,13 +115,8 @@ export default {
             errorMessage: '',
             isLandscape: false,
             planet: { resource_id: undefined, grids: [] },
-            intervals: [],
-            /* render state */
-            _scale: 1,
-            _offsetX: 0,
-            _offsetY: 0,
-            /* pan state */
-            _panX: 0, _panY: 0,
+            _scale: 1, _offsetX: 0, _offsetY: 0,
+            _panX: 0, _panY: 0, _panLocked: false,
             _dragStartX: 0, _dragStartY: 0,
             _dragging: false, _dragged: 0
         };
@@ -149,15 +137,15 @@ export default {
         }, 3000);
 
         window.addEventListener('resize', this.onResize);
+        window.addEventListener('orientationchange', this.onOrientationChange);
     },
 
     beforeDestroy() {
         this._destroyed = true;
         EventBus.$off('planet-updated', this.onPlanetData);
         clearTimeout(this._retryTimer);
-        if (this._raf) cancelAnimationFrame(this._raf);
         window.removeEventListener('resize', this.onResize);
-        this.clearIntervals();
+        window.removeEventListener('orientationchange', this.onOrientationChange);
     },
 
     methods: {
@@ -173,11 +161,9 @@ export default {
             );
         },
 
-        atlasUrl() {
-            return this.toLocalPath(this.gridTextureAtlas);
-        },
+        atlasUrl() { return this.toLocalPath(this.gridTextureAtlas); },
 
-        /* ── data fetching ───────────────────────────────────── */
+        /* ── data ────────────────────────────────────────────── */
 
         fetchPlanet() {
             if (this._fetchInFlight) return;
@@ -195,32 +181,21 @@ export default {
         onPlanetData(planet) {
             if (this._destroyed || !planet || !planet.resource_id) return;
             this.planet = planet;
-
-            if (this._hasPlanetData) {
-                this.draw(); // refresh
-                return;
-            }
+            if (this._hasPlanetData) { this.draw(); return; }
             this._hasPlanetData = true;
             this.initSurface();
         },
 
-        /* ═══════════════════════════════════════════════════════
-         *  INIT — load assets, size canvas, first draw
-         * ═══════════════════════════════════════════════════════ */
+        /* ── init ────────────────────────────────────────────── */
 
         async initSurface() {
             this.errorMessage = '';
             try {
-                var results = await Promise.all([
-                    loadImg(this.bgUrl()),
-                    loadImg(this.atlasUrl())
-                ]);
+                var imgs = await Promise.all([loadImg(this.bgUrl()), loadImg(this.atlasUrl())]);
                 if (this._destroyed) return;
-
-                this._bgImg    = results[0];
-                this._atlasImg = results[1];
-
-                this.sizeCanvas();
+                this._bgImg = imgs[0];
+                this._atlasImg = imgs[1];
+                this.computeLayout();
                 this.draw();
                 this.ready = true;
             } catch (err) {
@@ -231,53 +206,56 @@ export default {
         },
 
         /* ═══════════════════════════════════════════════════════
-         *  CANVAS SIZING  (responsive, orientation-aware)
+         *  LAYOUT — responsive, orientation-aware
          * ═══════════════════════════════════════════════════════ */
 
-        sizeCanvas() {
+        computeLayout() {
             var vp = this.$refs.viewport;
-            if (!vp) return;
+            var canvas = this.$refs.canvas;
+            if (!vp || !canvas) return;
 
-            var cw = vp.clientWidth;
-            var ch = vp.clientHeight;
+            // Real available area from the container element.
+            var rect = vp.getBoundingClientRect();
+            var cw = rect.width;
+            var ch = rect.height;
 
-            this.isLandscape = cw > ch;
+            this.isLandscape = cw >= ch;
 
-            var scale, canvasW, canvasH, offX, offY;
+            var scale, offX, offY, canvasW, canvasH, panLocked;
 
             if (this.isLandscape) {
-                // Contain: fit entire design inside viewport.
+                // ── LANDSCAPE: cover (fill viewport, no black bars) ──
+                scale = Math.max(cw / DW, ch / DH);
+                canvasW = cw;
+                canvasH = ch;
+                offX = (cw - DW * scale) / 2;
+                offY = (ch - DH * scale) / 2;
+                panLocked = true;
+            } else {
+                // ── PORTRAIT: contain + pan ──
                 scale = Math.min(cw / DW, ch / DH);
                 canvasW = cw;
                 canvasH = ch;
                 offX = (cw - DW * scale) / 2;
                 offY = (ch - DH * scale) / 2;
-            } else {
-                // Portrait: width-fill, height may exceed viewport (scroll).
-                scale = cw / DW;
-                canvasW = cw;
-                canvasH = DH * scale;
-                offX = 0;
-                offY = 0;
+                panLocked = false;
             }
 
-            var canvas = this.$refs.canvas;
             var dpr = window.devicePixelRatio || 1;
 
-            // CSS size
             canvas.style.width  = canvasW + 'px';
             canvas.style.height = canvasH + 'px';
-
-            // Backing store (crisp on HiDPI)
             canvas.width  = Math.round(canvasW * dpr);
             canvas.height = Math.round(canvasH * dpr);
 
-            this._scale   = scale;
-            this._offsetX = offX;
-            this._offsetY = offY;
-            this._dpr     = dpr;
-            this._canvasW = canvasW;
-            this._canvasH = canvasH;
+            this._scale    = scale;
+            this._offsetX  = offX;
+            this._offsetY  = offY;
+            this._dpr      = dpr;
+            this._panLocked = panLocked;
+
+            // Lock pan in landscape.
+            if (panLocked) { this._panX = 0; this._panY = 0; }
 
             // Normalize grid coordinates.
             var grids = this.planet.grids;
@@ -293,35 +271,28 @@ export default {
                 this._gridMinX = 0;
                 this._gridMinY = 0;
             }
-
-            // Reset pan.
-            this._panX = 0;
-            this._panY = 0;
         },
 
         /* ═══════════════════════════════════════════════════════
-         *  DRAW — pure Canvas 2D, no PixiJS
+         *  DRAW — pure Canvas 2D
          * ═══════════════════════════════════════════════════════ */
 
         draw() {
             var canvas = this.$refs.canvas;
             if (!canvas || !this._bgImg) return;
             var ctx = canvas.getContext('2d');
-
-            var dpr   = this._dpr;
+            var dpr = this._dpr;
             var scale = this._scale * dpr;
-            var offX  = this._offsetX * dpr + this._panX * dpr;
-            var offY  = this._offsetY * dpr + this._panY * dpr;
+            var offX = this._offsetX * dpr + this._panX * dpr;
+            var offY = this._offsetY * dpr + this._panY * dpr;
 
             // 1) Clear.
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = '#0b0e14';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // 2) Background.
+            // 2) Background (planet terrain).
             ctx.drawImage(this._bgImg, offX, offY, DW * scale, DH * scale);
 
-            // 3) Grid tiles.
+            // 3) Grid sprites — ONLY occupied slots.
             var grids = this.planet.grids;
             if (grids && grids.length && this._atlasImg) {
                 for (var i = 0; i < grids.length; i++) {
@@ -329,13 +300,18 @@ export default {
                 }
             }
 
-            // 4) Debug overlay (?debug=1).
+            // 4) Debug (?debug=1).
             if (location.search.indexOf('debug=1') !== -1) {
                 this.drawDebug(ctx, grids, scale, offX, offY);
             }
         },
 
         drawSlot(ctx, grid, scale, offX, offY) {
+            var f = resolveFrame(grid, this.planet.resource_id);
+
+            // Null = empty slot → don't draw anything.
+            if (!f) return;
+
             var rx = grid.x - this._gridMinX;
             var ry = grid.y - this._gridMinY;
             var dx = isoX(rx, ry) * scale + offX;
@@ -343,78 +319,71 @@ export default {
             var dw = TW * scale;
             var dh = TH * scale;
 
-            var f = resolveFrame(grid, this.planet.resource_id);
+            ctx.drawImage(this._atlasImg, f.x, f.y, f.w, f.h, dx, dy, dw, dh);
 
-            ctx.drawImage(
-                this._atlasImg,
-                f.x, f.y, f.w, f.h,   /* source rect */
-                dx, dy, dw, dh         /* dest rect */
-            );
-
-            // Level number.
             if (grid.level) {
                 ctx.fillStyle = '#fff';
-                ctx.font = Math.round(14 * scale / this._dpr) + 'px "Exo 2", sans-serif';
+                ctx.strokeStyle = '#0e141c';
+                ctx.lineWidth = 3;
                 ctx.textAlign = 'center';
-                ctx.fillText(grid.level, dx + dw / 2, dy + dh - 10 * scale / this._dpr);
+                ctx.font = Math.max(10, Math.round(14 * scale / this._dpr)) + 'px "Exo 2",sans-serif';
+                var tx = dx + dw / 2;
+                var ty = dy + dh - 8 * scale / this._dpr;
+                ctx.strokeText(grid.level, tx, ty);
+                ctx.fillText(grid.level, tx, ty);
             }
         },
 
         drawDebug(ctx, grids, scale, offX, offY) {
             if (!grids) return;
-            ctx.strokeStyle = 'rgba(255,0,0,0.6)';
             ctx.lineWidth = 1;
             ctx.font = '10px monospace';
-            ctx.fillStyle = 'red';
             ctx.textAlign = 'center';
 
             for (var i = 0; i < grids.length; i++) {
-                var rx = grids[i].x - this._gridMinX;
-                var ry = grids[i].y - this._gridMinY;
+                var g = grids[i];
+                var rx = g.x - this._gridMinX;
+                var ry = g.y - this._gridMinY;
                 var dx = isoX(rx, ry) * scale + offX;
                 var dy = isoY(rx, ry) * scale + offY;
-                var dw = TW * scale;
-                var dh = TH * scale;
+                var dw = TW * scale, dh = TH * scale;
+
+                ctx.strokeStyle = g.building_id ? 'lime' : 'rgba(255,0,0,0.4)';
                 ctx.strokeRect(dx, dy, dw, dh);
-                ctx.fillText(rx + ',' + ry, dx + dw / 2, dy + dh / 2);
+                ctx.fillStyle = g.building_id ? 'lime' : 'red';
+                ctx.fillText(
+                    rx + ',' + ry + ' t' + g.type + ' b' + (g.building_id || '-'),
+                    dx + dw / 2, dy + dh / 2
+                );
             }
         },
 
-        /* ═══════════════════════════════════════════════════════
-         *  HIT TESTING  (pointer → design coords → slot)
-         * ═══════════════════════════════════════════════════════ */
+        /* ── hit testing ─────────────────────────────────────── */
 
-        screenToDesign(clientX, clientY) {
-            var canvas = this.$refs.canvas;
-            var rect = canvas.getBoundingClientRect();
-            var cssX = clientX - rect.left;
-            var cssY = clientY - rect.top;
-            var designX = (cssX - this._offsetX - this._panX) / this._scale;
-            var designY = (cssY - this._offsetY - this._panY) / this._scale;
-            return { x: designX, y: designY };
+        screenToDesign(cx, cy) {
+            var r = this.$refs.canvas.getBoundingClientRect();
+            return {
+                x: (cx - r.left - this._offsetX - this._panX) / this._scale,
+                y: (cy - r.top  - this._offsetY - this._panY) / this._scale
+            };
         },
 
-        findSlotAt(designX, designY) {
+        findSlotAt(dx, dy) {
             var grids = this.planet.grids;
             if (!grids) return null;
-
-            for (var i = 0; i < grids.length; i++) {
+            for (var i = grids.length - 1; i >= 0; i--) {
                 var rx = grids[i].x - this._gridMinX;
                 var ry = grids[i].y - this._gridMinY;
-                var slotX = isoX(rx, ry);
-                var slotY = isoY(rx, ry);
-                var localX = designX - slotX;
-                var localY = designY - slotY;
-                if (localX >= 0 && localX <= TW && localY >= 0 && localY <= TH) {
-                    if (pointInTile(localX, localY)) {
-                        return grids[i];
-                    }
+                var lx = dx - isoX(rx, ry);
+                var ly = dy - isoY(rx, ry);
+                if (lx >= 0 && lx <= TW && ly >= 0 && ly <= TH && pointInTile(lx, ly)) {
+                    return grids[i];
                 }
             }
             return null;
         },
 
-        /* ── pointer events (pan + tap) ──────────────────────── */
+        /* ── pointer events ──────────────────────────────────── */
 
         onPointer(e) {
             this._dragging = true;
@@ -425,20 +394,24 @@ export default {
 
         onPointerMove(e) {
             if (!this._dragging) return;
-            var nx = e.clientX - this._dragStartX;
-            var ny = e.clientY - this._dragStartY;
-            this._dragged += Math.abs(nx - this._panX) + Math.abs(ny - this._panY);
-            this._panX = nx;
-            this._panY = ny;
-            this.draw();
+            // Pan only if NOT locked (portrait).
+            if (!this._panLocked) {
+                var nx = e.clientX - this._dragStartX;
+                var ny = e.clientY - this._dragStartY;
+                this._dragged += Math.abs(nx - this._panX) + Math.abs(ny - this._panY);
+                this._panX = nx;
+                this._panY = ny;
+                this.draw();
+            } else {
+                // Track drag distance for tap detection even in landscape.
+                this._dragged += Math.abs(e.movementX || 0) + Math.abs(e.movementY || 0);
+            }
         },
 
         onPointerUp(e) {
             if (!this._dragging) return;
             this._dragging = false;
-
-            // If drag distance was small → treat as click/tap.
-            if (this._dragged < 8) {
+            if (this._dragged < 10) {
                 var d = this.screenToDesign(e.clientX, e.clientY);
                 var slot = this.findSlotAt(d.x, d.y);
                 if (slot) {
@@ -450,24 +423,26 @@ export default {
             }
         },
 
-        /* ── resize ──────────────────────────────────────────── */
+        /* ── resize / orientation ────────────────────────────── */
 
         onResize() {
             if (this._resizeTimer) return;
             this._resizeTimer = setTimeout(() => {
                 this._resizeTimer = null;
                 if (this._destroyed || !this._bgImg) return;
-                this.sizeCanvas();
+                this.computeLayout();
                 this.draw();
-            }, 100);
+            }, 80);
         },
 
-        /* ── cleanup ─────────────────────────────────────────── */
-
-        clearIntervals() {
-            for (var i = 0; i < this.intervals.length; i++)
-                clearInterval(this.intervals[i]);
-            this.intervals = [];
+        onOrientationChange() {
+            // iOS/Android need a delayed re-measure after orientation settle.
+            setTimeout(() => {
+                if (!this._destroyed && this._bgImg) {
+                    this.computeLayout();
+                    this.draw();
+                }
+            }, 200);
         }
     }
 };
