@@ -76,13 +76,21 @@ export default Modal.extend({
         store() {
             axios.post(
                 this.storeUrl.replace('__grid__', this.grid.id).replace('__building__', this.selected.id)
-            );
+            ).then(() => {
+                this.close();
+                // Trigger planet data refresh so Surface redraws with
+                // the new construction state (timer, ghost sprite).
+                EventBus.$emit('planet-update');
+            });
         },
 
         destroy() {
             axios.delete(
                 this.destroyUrl.replace('__grid__', this.grid.id)
-            );
+            ).then(() => {
+                this.close();
+                EventBus.$emit('planet-update');
+            });
         },
 
         isSelected(building) {
