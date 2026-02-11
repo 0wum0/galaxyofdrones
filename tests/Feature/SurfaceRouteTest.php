@@ -118,4 +118,62 @@ class SurfaceRouteTest extends TestCase
         $grids = $response->json('grids');
         $this->assertNotEmpty($grids, 'Planet API must return non-empty grids for the surface.');
     }
+
+    /**
+     * All planet background images (1–7) must exist in public/images/.
+     * These are loaded by PixiJS on the Surface to render the planet
+     * background behind the grid.
+     */
+    public function testPlanetBackgroundImagesExist()
+    {
+        for ($i = 1; $i <= 7; $i++) {
+            $path = public_path("images/planet-{$i}-bg.png");
+            $this->assertFileExists($path, "Planet background image planet-{$i}-bg.png is missing from public/images/.");
+        }
+    }
+
+    /**
+     * The sprite-grid.png must exist — it contains all grid/building
+     * textures used by the Surface PixiJS renderer.
+     */
+    public function testSpriteGridImageExists()
+    {
+        $this->assertFileExists(
+            public_path('images/sprite-grid.png'),
+            'sprite-grid.png is missing from public/images/.'
+        );
+    }
+
+    /**
+     * The planet API must return a valid resource_id (1–7) so the
+     * Surface component can construct the background texture URL.
+     */
+    public function testPlanetApiReturnsValidResourceId()
+    {
+        $user = $this->createStartedUser();
+        $this->actingAs($user);
+
+        $response = $this->getJson('/api/planet')
+            ->assertStatus(200);
+
+        $resourceId = $response->json('resource_id');
+        $this->assertNotNull($resourceId, 'Planet API must return a resource_id.');
+        $this->assertGreaterThanOrEqual(1, $resourceId, 'resource_id must be >= 1.');
+        $this->assertLessThanOrEqual(7, $resourceId, 'resource_id must be <= 7.');
+    }
+
+    /**
+     * The compiled JavaScript bundle must contain the Surface component
+     * with the new viewport wrapper and direct API fallback.
+     */
+    public function testCompiledJsContainsSurfaceComponent()
+    {
+        $appJs = public_path('js/app.js');
+        $this->assertFileExists($appJs, 'public/js/app.js must exist.');
+
+        $content = file_get_contents($appJs);
+        $this->assertStringContainsString('surface-viewport', $content, 'app.js must contain the surface-viewport wrapper.');
+        $this->assertStringContainsString('fetchPlanetDirect', $content, 'app.js must contain the direct API fallback.');
+        $this->assertStringContainsString('surface-loading', $content, 'app.js must contain the loading indicator.');
+    }
 }

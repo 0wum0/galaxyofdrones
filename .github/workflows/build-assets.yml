@@ -258,7 +258,49 @@ jobs:
           echo "--- All Leaflet JS images verified ---"
 
       # ---------------------------------------------------------------
-      # Verification Step 7: Blade asset() references
+      # Verification Step 7: Surface assets (planet BG + sprite-grid)
+      # ---------------------------------------------------------------
+      - name: Verify Surface assets (planet backgrounds + sprite-grid)
+        run: |
+          echo "--- Verifying Surface PixiJS assets ---"
+          MISSING=0
+          for i in 1 2 3 4 5 6 7; do
+            if [ ! -f "public/images/planet-${i}-bg.png" ]; then
+              echo "MISSING: public/images/planet-${i}-bg.png"
+              MISSING=$((MISSING + 1))
+            else
+              SIZE=$(wc -c < "public/images/planet-${i}-bg.png")
+              echo "OK: public/images/planet-${i}-bg.png ($SIZE bytes)"
+            fi
+          done
+          if [ ! -f "public/images/sprite-grid.png" ]; then
+            echo "MISSING: public/images/sprite-grid.png"
+            MISSING=$((MISSING + 1))
+          else
+            SIZE=$(wc -c < "public/images/sprite-grid.png")
+            echo "OK: public/images/sprite-grid.png ($SIZE bytes)"
+          fi
+          # Verify compiled JS contains the Surface component
+          if grep -q 'surface-viewport' public/js/app.js; then
+            echo "OK: app.js contains surface-viewport"
+          else
+            echo "ERROR: app.js does NOT contain surface-viewport!"
+            MISSING=$((MISSING + 1))
+          fi
+          if grep -q 'fetchPlanetDirect' public/js/app.js; then
+            echo "OK: app.js contains direct API fallback"
+          else
+            echo "ERROR: app.js does NOT contain fetchPlanetDirect!"
+            MISSING=$((MISSING + 1))
+          fi
+          if [ "$MISSING" -gt 0 ]; then
+            echo "ERROR: $MISSING Surface asset(s) or component checks failed!"
+            exit 1
+          fi
+          echo "--- All Surface assets verified ---"
+
+      # ---------------------------------------------------------------
+      # Verification Step 8: Blade asset() references
       # ---------------------------------------------------------------
       - name: Verify Blade asset() references
         run: |

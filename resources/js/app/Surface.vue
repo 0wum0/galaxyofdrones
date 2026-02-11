@@ -1,5 +1,13 @@
 <template>
-    <canvas class="surface"></canvas>
+    <div class="surface-viewport">
+        <canvas ref="canvas" class="surface"></canvas>
+        <div v-if="!ready" class="surface-loading">
+            <div class="surface-spinner"></div>
+            <p v-if="errorMessage" class="surface-error-text">
+                {{ errorMessage }}
+            </p>
+        </div>
+    </div>
 </template>
 <script>
 import {
@@ -47,6 +55,10 @@ export default {
             loader: undefined,
             renderer: undefined,
             stage: undefined,
+            ready: false,
+            retryCount: 0,
+            maxRetries: 3,
+            errorMessage: '',
             breakpoints: [
                 {
                     minWidth: 1,
@@ -85,38 +97,29 @@ export default {
 
     mounted() {
         this._destroyed = false;
-        this.$viewport = $(this.$el).parent();
+        this.$viewport = $(this.$el);
 
         EventBus.$on('planet-updated', this.planetUpdated);
 
-        // Request planet data from the Sidebar.  Two strategies run in
-        // parallel to maximise reliability across all timing scenarios:
-        //
-        // 1. If the Sidebar already has data cached (EventBus._lastPlanetData
-        //    or its own this.data), the 'planet-data-request' event causes
-        //    Sidebar to re-emit 'planet-updated' synchronously — which our
-        //    listener above receives immediately.
-        //
-        // 2. If no cached data is available yet (initial page load, API call
-        //    in flight), we rely on the normal 'planet-updated' emission
-        //    from Sidebar once its API call completes.
-        //
-        // Strategy 1 is the primary fix for the "blank surface after SPA
-        // navigation" bug: the old _lastPlanetData + deferInit approach
-        // introduced a $nextTick + requestAnimationFrame gap during which
-        // a racing live 'planet-updated' event could cause the deferred
-        // init to be skipped via the (this.stage || this._loading) guard,
-        // yet the live event's initPixi could also fail silently if the
-        // viewport hadn't finished layout.
+        // Strategy 1: Request cached data from Sidebar synchronously.
+        // If the Sidebar already has planet data (e.g. after SPA navigation
+        // from starmap), it re-emits 'planet-updated' immediately.
         EventBus.$emit('planet-data-request');
 
-        // Fallback: if neither strategy delivers data within 2 seconds
-        // (e.g. slow API, dropped event), re-request once.
+        // Strategy 2: If no data arrived from Sidebar (e.g. first page load,
+        // API still in flight), fall back to a direct API fetch.
+        this._apiTimer = setTimeout(() => {
+            if (!this._destroyed && !this.stage && !this._loading) {
+                this.fetchPlanetDirect();
+            }
+        }, 1500);
+
+        // Strategy 3: Final EventBus retry after 4 seconds.
         this._retryTimer = setTimeout(() => {
             if (!this._destroyed && !this.stage && !this._loading) {
                 EventBus.$emit('planet-data-request');
             }
-        }, 2000);
+        }, 4000);
     },
 
     beforeDestroy() {
@@ -124,15 +127,40 @@ export default {
 
         EventBus.$off('planet-updated', this.planetUpdated);
 
+        if (this._apiTimer) {
+            clearTimeout(this._apiTimer);
+            this._apiTimer = undefined;
+        }
+
         if (this._retryTimer) {
             clearTimeout(this._retryTimer);
             this._retryTimer = undefined;
+        }
+
+        if (this._loadTimeout) {
+            clearTimeout(this._loadTimeout);
+            this._loadTimeout = undefined;
         }
 
         this.destroyPixi();
     },
 
     methods: {
+        /**
+         * Direct API fetch as fallback when EventBus doesn't deliver data.
+         * This handles the case where the Sidebar's initial API call hasn't
+         * completed yet (first page load at /).
+         */
+        fetchPlanetDirect() {
+            axios.get('/api/planet').then(response => {
+                if (!this._destroyed && response.data && response.data.id) {
+                    this.planetUpdated(response.data);
+                }
+            }).catch(err => {
+                console.error('[Surface] Direct API fetch failed:', err);
+            });
+        },
+
         planetUpdated(planet) {
             if (this._destroyed) {
                 return;
@@ -141,20 +169,13 @@ export default {
             this.planet = planet;
 
             if (!this.stage && !this._loading) {
-                // Defer PixiJS initialisation to $nextTick + rAF so the
-                // browser has finished layout and the canvas / viewport
-                // have real dimensions.  The guard inside the rAF callback
-                // prevents double-init if another event fires in between.
-                this.$nextTick(() => {
-                    if (this._destroyed) return;
-                    requestAnimationFrame(() => {
-                        if (this._destroyed) return;
-                        if (this.stage || this._loading) return;
-                        // Re-read viewport now that layout is stable.
-                        this.$viewport = $(this.$el).parent();
-                        this.initPixi();
-                    });
-                });
+                // Call initPixi() directly — no $nextTick + rAF deferral.
+                // The rendererWidth/Height methods fall back to the prop
+                // dimensions (1920×1080) if the viewport hasn't finished
+                // layout yet.  The resize() handler will correct dimensions
+                // once layout stabilises.
+                this.$viewport = $(this.$el);
+                this.initPixi();
             } else if (this.stage) {
                 this.updatePixi();
             }
@@ -167,6 +188,7 @@ export default {
             if (this._destroyed) return;
 
             this._loading = true;
+            this.errorMessage = '';
 
             this.loader = new Loader();
 
@@ -177,7 +199,23 @@ export default {
 
             this.loader.add(this.backgroundName(), this.background());
             this.loader.add('grid', this.gridTextureAtlas);
+
+            // Safety timeout: if the loader never fires its callback (e.g.
+            // network hang, stuck XHR), destroy and retry.
+            this._loadTimeout = setTimeout(() => {
+                if (this._loading && !this._destroyed) {
+                    console.error('[Surface] Texture loading timed out — retrying.');
+                    this.destroyPixi();
+                    this.retryInit();
+                }
+            }, 15000);
+
             this.loader.load(() => {
+                if (this._loadTimeout) {
+                    clearTimeout(this._loadTimeout);
+                    this._loadTimeout = undefined;
+                }
+
                 this._loading = false;
 
                 if (this._destroyed) return;
@@ -187,17 +225,16 @@ export default {
                 const gridResource = this.loader.resources.grid;
 
                 if (!bgResource || bgResource.error || !gridResource || gridResource.error) {
-                    console.error('[Surface] Critical texture(s) failed to load — resetting for retry.');
-                    // Reset the Pixi state entirely so the next planetUpdated()
-                    // call can start fresh via initPixi() instead of getting
-                    // stuck in the broken updatePixi() path.
+                    console.error('[Surface] Critical texture(s) failed to load — retrying.');
                     this.destroyPixi();
+                    this.retryInit();
                     return;
                 }
 
                 this.setup();
                 this.align();
                 this.animate();
+                this.ready = true;
             });
 
             // Create the stage and container BEFORE the loader callback
@@ -221,16 +258,38 @@ export default {
                 this.renderer = autoDetectRenderer({
                     height: this.rendererHeight(),
                     backgroundColor: 0x0b0e14,
-                    view: this.$el,
+                    view: this.$refs.canvas,
                     width: this.rendererWidth()
                 });
             } catch (e) {
                 console.error('[Surface] Failed to create PixiJS renderer:', e);
                 this.destroyPixi();
+                this.retryInit();
                 return;
             }
 
             window.addEventListener('resize', this.resize);
+        },
+
+        /**
+         * Retry initPixi() with exponential backoff.
+         */
+        retryInit() {
+            this.retryCount += 1;
+
+            if (this.retryCount > this.maxRetries) {
+                console.error(`[Surface] Max retries reached (${this.maxRetries}).`);
+                this.errorMessage = 'Surface could not be loaded. Please reload the page.';
+                return;
+            }
+
+            const delay = Math.min(1000 * (2 ** (this.retryCount - 1)), 8000);
+
+            setTimeout(() => {
+                if (!this._destroyed && !this.stage && !this._loading && this.planet.resource_id) {
+                    this.initPixi();
+                }
+            }, delay);
         },
 
         updatePixi() {
@@ -266,6 +325,11 @@ export default {
         destroyPixi() {
             this._loading = false;
             this.clearIntervals();
+
+            if (this._loadTimeout) {
+                clearTimeout(this._loadTimeout);
+                this._loadTimeout = undefined;
+            }
 
             if (this.animationFrame) {
                 cancelAnimationFrame(this.animationFrame);
