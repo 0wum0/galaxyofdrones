@@ -9,7 +9,8 @@
 </template>
 <script>
 import {
-    autoDetectRenderer, Container, Sprite, Text, Texture, utils
+    autoDetectRenderer, BaseTexture, Container, Sprite,
+    Text, Texture, utils
 } from 'pixi.js';
 
 import { EventBus } from '../event-bus';
@@ -19,11 +20,12 @@ import Sprites from './Sprites';
 utils.skipHello();
 
 /**
- * Load an image → Promise<HTMLImageElement>.
+ * Load image with crossOrigin so canvas won't be tainted.
  */
 function loadImg(url) {
     return new Promise(function (resolve, reject) {
         var img = new Image();
+        img.crossOrigin = 'anonymous';
         img.onload = function () { resolve(img); };
         img.onerror = function () { reject(new Error('Failed: ' + url)); };
         img.src = url;
@@ -31,15 +33,16 @@ function loadImg(url) {
 }
 
 /**
- * Slice a sub-region from an image using Canvas 2D.
+ * Cut a sub-region from a source image via Canvas 2D.
  *
- * This completely bypasses PixiJS Texture framing / UV system
- * which has proven unreliable with BaseTexture.from() in 5.3.x.
- * Canvas drawImage is universally reliable across all browsers.
+ * Returns a fresh PIXI.Texture that bypasses the PixiJS texture
+ * cache entirely (no shared BaseTexture, no UV framing bugs).
  *
- * Returns a PIXI.Texture backed by the sliced canvas.
+ * CRITICAL: create BaseTexture directly from canvas — do NOT use
+ * Texture.from(canvas) which caches by canvas _pixiId and can
+ * return stale/wrong textures.
  */
-function sliceTexture(img, rect) {
+function cutSprite(img, rect) {
     var c = document.createElement('canvas');
     c.width  = rect.width;
     c.height = rect.height;
@@ -48,14 +51,13 @@ function sliceTexture(img, rect) {
         rect.x, rect.y, rect.width, rect.height,
         0, 0, rect.width, rect.height
     );
-    return Texture.from(c);
+    // Bypass PixiJS cache: raw BaseTexture + Texture.
+    return new Texture(new BaseTexture(c));
 }
 
 /**
- * Resolve a frame Rectangle from Sprites.js, handling the nested
- * object case (building 2 has per-resource sub-map).
- *
- * Returns a Rectangle with numeric x/y/width/height — guaranteed.
+ * Resolve the correct Rectangle from Sprites.js.
+ * Handles the nested object case (buildings[2] has per-resource sub-map).
  */
 function resolveFrame(grid, resourceId) {
     var r = Sprites.plain;
@@ -64,13 +66,12 @@ function resolveFrame(grid, resourceId) {
         if (grid.construction) {
             r = Sprites.constructions[grid.construction.building_id] || r;
         } else if (grid.type === 1) {
+            // Resource slot.
             if (grid.building_id) {
                 var bs = Sprites.buildings[grid.building_id];
-                if (bs && typeof bs === 'object' && typeof bs.width === 'number') {
-                    // Direct Rectangle (has numeric .width).
+                if (bs && typeof bs.width === 'number') {
                     r = bs;
                 } else if (bs && typeof bs === 'object') {
-                    // Nested: { 1: Rect, 2: Rect, ... } keyed by resource_id.
                     r = bs[resourceId] || bs[1] || r;
                 }
             } else {
@@ -78,7 +79,7 @@ function resolveFrame(grid, resourceId) {
             }
         } else if (grid.building_id) {
             var b = Sprites.buildings[grid.building_id];
-            if (b && typeof b === 'object' && typeof b.width === 'number') {
+            if (b && typeof b.width === 'number') {
                 r = b;
             } else if (b && typeof b === 'object') {
                 r = b[resourceId] || b[1] || r;
@@ -88,11 +89,7 @@ function resolveFrame(grid, resourceId) {
         r = Sprites.plain;
     }
 
-    // Final safety: if r somehow isn't a Rectangle, fall back.
-    if (!r || typeof r.width !== 'number') {
-        r = Sprites.plain;
-    }
-
+    if (!r || typeof r.width !== 'number') r = Sprites.plain;
     return r;
 }
 
@@ -212,12 +209,7 @@ export default {
         },
 
         /* ═══════════════════════════════════════════════════════
-         *  setupPixi — NO PixiJS Loader, NO Texture frame/UV.
-         *
-         *  Images are loaded as plain <img> elements.
-         *  Sub-textures are sliced using Canvas 2D drawImage()
-         *  which is 100% reliable across all browsers and avoids
-         *  the PixiJS 5.3 texture framing / UV bleeding bug.
+         *  setupPixi
          * ═══════════════════════════════════════════════════════ */
 
         async setupPixi() {
@@ -226,17 +218,16 @@ export default {
             this.errorMessage = '';
 
             try {
-                // 1) Load both images as native HTMLImageElements.
+                // Load images with crossOrigin to prevent tainted canvas.
                 var bgImg   = await loadImg(this.bgImageUrl());
                 var gridImg = await loadImg(this.gridImageUrl());
 
                 if (this._destroyed) return;
 
-                // Store the raw grid image for slicing in buildGrid().
                 this._bgImg   = bgImg;
                 this._gridImg = gridImg;
 
-                // 2) Create renderer.
+                // Create renderer.
                 this.stage = new Container();
                 this.container = new Container();
                 this.container.interactive = true;
@@ -259,7 +250,7 @@ export default {
 
                 window.addEventListener('resize', this.onResize);
 
-                // 3) Build the scene.
+                // Build scene.
                 this.buildGrid();
                 this.align();
                 this.animate();
@@ -274,16 +265,17 @@ export default {
         },
 
         /* ═══════════════════════════════════════════════════════
-         *  buildGrid — Canvas 2D slicing, Sprites.js coordinates
+         *  buildGrid
          * ═══════════════════════════════════════════════════════ */
 
         buildGrid() {
             this.clearIntervals();
             this.container.removeChildren();
 
-            // Layer 0: planet background.
+            // Layer 0: background.
             if (this._bgImg) {
-                this.container.addChild(new Sprite(Texture.from(this._bgImg)));
+                var bgTex = new Texture(new BaseTexture(this._bgImg));
+                this.container.addChild(new Sprite(bgTex));
             }
 
             // Layer 1+: grid tiles.
@@ -300,18 +292,16 @@ export default {
         },
 
         makeSlot(grid) {
-            // Resolve the correct Rectangle from Sprites.js.
-            var rect = resolveFrame(grid, this.planet.resource_id);
-
-            // Slice the sub-region from the atlas image using Canvas 2D.
-            // This avoids PixiJS Texture framing entirely.
-            var tex = sliceTexture(this._gridImg, rect);
+            var rect   = resolveFrame(grid, this.planet.resource_id);
+            var tex    = cutSprite(this._gridImg, rect);
             var sprite = new Sprite(tex);
 
-            sprite.x = this.gridX(grid);
-            sprite.y = this.gridY(grid);
+            // Isometric position — grid.x/y are 0-based tile indices.
+            // Formula places tiles in a diamond pattern on the 1920×1080 canvas.
+            sprite.x = (grid.x - grid.y + 4) * 162 + (this.width - 1608) / 2;
+            sprite.y = (grid.x + grid.y) * 81 + (this.height - 888) / 2;
 
-            // Interaction — diamond hitArea from Sprites.js.
+            // Interaction.
             sprite.interactive = true;
             sprite.buttonMode  = true;
             sprite.hitArea     = Sprites.hitArea;
@@ -359,9 +349,6 @@ export default {
         },
 
         /* ── layout ──────────────────────────────────────────── */
-
-        gridX(g) { return (g.x - g.y + 4) * 162 + (this.width - 1608) / 2; },
-        gridY(g) { return (g.x + g.y) * 81 + (this.height - 888) / 2; },
 
         containerScale() {
             var w = this.vpW(), h = this.vpH();
