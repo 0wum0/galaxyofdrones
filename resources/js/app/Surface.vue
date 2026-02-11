@@ -278,25 +278,29 @@ export default {
                 this.container.addChild(new Sprite(bgTex));
             }
 
-            // Layer 1+: grid tiles.
+            // Layer 1+: grid tiles in a centered sub-container.
             var grids = this.planet.grids;
             if (!grids || !grids.length || !this._gridImg) return;
 
-            // ── Normalize grid coordinates ──────────────────────
-            // The API returns absolute starmap coordinates (e.g.
-            // x=20, y=20) which produce huge pixel values when
-            // multiplied.  We need 0-based relative indices.
+            // Normalize coordinates to 0-based.
             var minX = grids[0].x, minY = grids[0].y;
             for (var i = 1; i < grids.length; i++) {
                 if (grids[i].x < minX) minX = grids[i].x;
                 if (grids[i].y < minY) minY = grids[i].y;
             }
-            this._gridOffsetX = minX;
-            this._gridOffsetY = minY;
+            this._gridMinX = minX;
+            this._gridMinY = minY;
+
+            // Grid sub-container — positioned at the CENTER of the
+            // background so tiles align with the planet terrain.
+            this._gridLayer = new Container();
+            this._gridLayer.x = this.width / 2;
+            this._gridLayer.y = this.height / 2 - 100;
+            this.container.addChild(this._gridLayer);
 
             for (var j = 0; j < grids.length; j++) {
                 try {
-                    this.container.addChild(this.makeSlot(grids[j]));
+                    this._gridLayer.addChild(this.makeSlot(grids[j]));
                 } catch (e) {
                     console.warn('[Surface] slot', j, e.message);
                 }
@@ -308,15 +312,17 @@ export default {
             var tex    = cutSprite(this._gridImg, rect);
             var sprite = new Sprite(tex);
 
-            // Normalize to 0-based indices.
-            var relX = grid.x - this._gridOffsetX;
-            var relY = grid.y - this._gridOffsetY;
+            // Normalize to 0-based indices and center around origin.
+            var relX = grid.x - this._gridMinX;
+            var relY = grid.y - this._gridMinY;
+            // Center the 5×5 grid: subtract 2 so indices go -2..+2.
+            var cx = relX - 2;
+            var cy = relY - 2;
 
-            // Isometric diamond layout on the 1920×1080 canvas.
-            // +4 centers a 5×5 grid; (width-1608)/2 and (height-888)/2
-            // center the diamond within the background image.
-            sprite.x = (relX - relY + 4) * 162 + (this.width - 1608) / 2;
-            sprite.y = (relX + relY) * 81 + (this.height - 888) / 2;
+            // Standard isometric formula — tiles are 320×200 each.
+            sprite.x = (cx - cy) * (320 / 2);
+            sprite.y = (cx + cy) * (200 / 2);
+            sprite.anchor.set(0.5, 0);
 
             // Interaction.
             sprite.interactive = true;
