@@ -8,24 +8,9 @@
     </div>
 </template>
 <script>
-/*
- * Surface component — renders the planet grid using PixiJS.
- *
- * Texture sub-regions:  The grid sprite atlas is loaded via the PixiJS
- * Loader.  Sub-textures for individual tiles are created with:
- *
- *     new PIXI.Texture(loaderTextureObject, frameRectangle)
- *
- * The first argument MUST be the Loader-created Texture object (not its
- * .baseTexture).  PixiJS internally converts it via:
- *     if (baseTexture instanceof Texture) baseTexture = baseTexture.baseTexture;
- * But this exact call path is the ONLY one tested/proven to produce
- * correct UVs in PixiJS 5.3.x.  Passing a raw BaseTexture directly
- * caused "texture bleeding" (full atlas rendered in every tile) because
- * the constructor's frame→UV code path behaves differently.
- */
 import {
-    autoDetectRenderer, Container, Loader, Sprite, utils, Text, Texture
+    autoDetectRenderer, BaseTexture, Container, Graphics,
+    Polygon, Rectangle, Sprite, Text, Texture, utils
 } from 'pixi.js';
 
 import { EventBus } from '../event-bus';
@@ -52,7 +37,6 @@ export default {
             dragged: 0,
             container: undefined,
             intervals: [],
-            loader: undefined,
             renderer: undefined,
             stage: undefined,
             ready: false,
@@ -65,10 +49,6 @@ export default {
         };
     },
 
-    created() {
-        utils.skipHello();
-    },
-
     mounted() {
         this._destroyed = false;
         this._hasPlanetData = false;
@@ -78,15 +58,11 @@ export default {
         EventBus.$emit('planet-data-request');
 
         this.$nextTick(() => {
-            if (!this._destroyed && !this._hasPlanetData) {
-                this.fetchPlanetDirect();
-            }
+            if (!this._destroyed && !this._hasPlanetData) this.fetchPlanetDirect();
         });
 
         this._retryTimer = setTimeout(() => {
-            if (!this._destroyed && !this._hasPlanetData) {
-                this.fetchPlanetDirect();
-            }
+            if (!this._destroyed && !this._hasPlanetData) this.fetchPlanetDirect();
         }, 3000);
     },
 
@@ -98,34 +74,30 @@ export default {
     },
 
     methods: {
-        /**
-         * Strip the origin from a URL to make it root-relative.
-         * Prevents PixiJS Loader from adding crossOrigin='anonymous'.
-         */
         toLocalPath(url) {
             if (!url) return url;
             try { return new URL(url, window.location.origin).pathname; }
             catch (e) { return url.replace(/^https?:\/\/[^/]+/, ''); }
         },
 
-        background() {
-            return this.backgroundTexture.replace('__resource__', this.planet.resource_id);
+        bgImageUrl() {
+            return this.toLocalPath(
+                this.backgroundTexture.replace('__resource__', this.planet.resource_id)
+            );
         },
 
-        backgroundName() {
-            return 'background_' + this.planet.resource_id;
+        gridImageUrl() {
+            return this.toLocalPath(this.gridTextureAtlas);
         },
 
-        rendererWidth() {
+        vpW() {
             var el = this.$refs.viewport;
-            var w = el ? el.clientWidth : 0;
-            return w > 1 ? w : this.width;
+            return el && el.clientWidth > 1 ? el.clientWidth : this.width;
         },
 
-        rendererHeight() {
+        vpH() {
             var el = this.$refs.viewport;
-            var h = el ? el.clientHeight : 0;
-            return h > 1 ? h : this.height;
+            return el && el.clientHeight > 1 ? el.clientHeight : this.height;
         },
 
         /* ── data fetching ───────────────────────────────────── */
@@ -136,14 +108,12 @@ export default {
 
             axios.get('/api/planet').then(response => {
                 this._fetchInFlight = false;
-                if (!this._destroyed && response.data && response.data.id) {
+                if (!this._destroyed && response.data && response.data.id)
                     this.planetUpdated(response.data);
-                }
             }).catch(() => {
                 this._fetchInFlight = false;
-                if (!this._destroyed && !this._hasPlanetData) {
+                if (!this._destroyed && !this._hasPlanetData)
                     this.errorMessage = 'Planet data could not be loaded.';
-                }
             });
         },
 
@@ -152,70 +122,71 @@ export default {
 
             if (this._hasPlanetData && this.stage) {
                 this.planet = planet;
-                try { this.setup(); } catch (e) { /* keep old scene */ }
+                try { this.buildGrid(); } catch (e) { /* keep old scene */ }
                 return;
             }
 
             this._hasPlanetData = true;
             this.planet = planet;
 
-            // CSS fallback background.
-            if (this.$refs.viewport) {
-                this.$refs.viewport.style.backgroundImage =
-                    'url(' + this.toLocalPath(this.background()) + ')';
-            }
+            // CSS fallback.
+            if (this.$refs.viewport)
+                this.$refs.viewport.style.backgroundImage = 'url(' + this.bgImageUrl() + ')';
 
-            if (!this._loading && !this.stage) {
-                this.initPixi();
-            }
+            if (!this._loading && !this.stage) this.setupPixi();
         },
 
-        /* ── PixiJS init ─────────────────────────────────────── */
+        /* ════════════════════════════════════════════════════════
+         *  CORE:  setupPixi  —  NO Loader, manual BaseTexture.from
+         * ════════════════════════════════════════════════════════ */
 
-        initPixi() {
+        async setupPixi() {
             if (this._destroyed || this._loading) return;
             this._loading = true;
             this.errorMessage = '';
 
-            var bgUrl   = this.toLocalPath(this.background());
-            var gridUrl = this.toLocalPath(this.gridTextureAtlas);
+            try {
+                // ── 1) Load images via BaseTexture.from ─────────────
+                // This is a direct Image() load — no PixiJS Loader.
+                var bgBase   = BaseTexture.from(this.bgImageUrl());
+                var gridBase = BaseTexture.from(this.gridImageUrl());
 
-            this.loader = new Loader();
+                // Wait until both are valid (loaded into GPU memory).
+                if (!bgBase.valid) {
+                    await new Promise(function (resolve) {
+                        bgBase.once('loaded', resolve);
+                        bgBase.once('error', function () { resolve(); });
+                    });
+                }
+                if (!gridBase.valid) {
+                    await new Promise(function (resolve) {
+                        gridBase.once('loaded', resolve);
+                        gridBase.once('error', function () { resolve(); });
+                    });
+                }
 
-            this.loader.onError.add((err, ldr, res) => {
-                console.error('[Surface] Loader error:', res && res.url, err);
-            });
-
-            // Add with crossOrigin='' — empty string is falsy so the
-            // Loader's _determineCrossOrigin won't add 'anonymous'.
-            this.loader.add(this.backgroundName(), bgUrl, { crossOrigin: '' });
-            this.loader.add('grid', gridUrl, { crossOrigin: '' });
-
-            this.loader.load((ldr, resources) => {
-                this._loading = false;
                 if (this._destroyed) return;
 
-                var bgRes   = resources[this.backgroundName()];
-                var gridRes = resources.grid;
+                // ── 2) Create master textures ───────────────────────
+                // The "atlas texture" wraps the BaseTexture.  Sub-textures
+                // are then created from this atlas — this is the proven
+                // pattern that produces correct UV coordinates in PixiJS 5.
+                this._bgTexture    = new Texture(bgBase);
+                this._gridAtlasTex = new Texture(gridBase);
 
-                if (!bgRes || bgRes.error || !gridRes || gridRes.error) {
-                    this.errorMessage = 'Textures could not be loaded.';
-                    this.ready = true;
-                    return;
-                }
+                // ── 3) Create renderer + scene ──────────────────────
+                this.createRenderer();
+                this.buildGrid();
+                this.align();
+                this.animate();
 
-                try {
-                    this.createRenderer();
-                    this.setup();
-                    this.align();
-                    this.animate();
-                } catch (err) {
-                    console.error('[Surface] render error:', err);
-                    this.errorMessage = 'Render error: ' + err.message;
-                } finally {
-                    this.ready = true;
-                }
-            });
+            } catch (err) {
+                console.error('[Surface] setupPixi error:', err);
+                this.errorMessage = 'Surface error: ' + err.message;
+            } finally {
+                this._loading = false;
+                this.ready = true;
+            }
         },
 
         createRenderer() {
@@ -233,159 +204,180 @@ export default {
             this.stage.addChild(this.container);
 
             this.renderer = autoDetectRenderer({
-                width: this.rendererWidth(),
-                height: this.rendererHeight(),
+                width: this.vpW(),
+                height: this.vpH(),
                 view: this.$refs.canvas,
                 backgroundColor: 0x0b0e14
             });
 
-            window.addEventListener('resize', this.resize);
+            window.addEventListener('resize', this.onResize);
         },
 
-        /* ── scene setup ─────────────────────────────────────── */
+        /* ════════════════════════════════════════════════════════
+         *  buildGrid  —  Sprites.js rectangles + atlas master tex
+         * ════════════════════════════════════════════════════════ */
 
-        setup() {
+        buildGrid() {
             this.clearIntervals();
             this.container.removeChildren();
 
-            // Background sprite.
-            this.container.addChild(this.backgroundSprite());
-
-            // Grid tile sprites.
-            _.forEach(this.planet.grids, grid => {
-                try {
-                    this.container.addChild(this.gridSprite(grid));
-                } catch (e) {
-                    console.warn('[Surface] grid', grid.id, e.message);
-                }
-            });
-        },
-
-        backgroundSprite() {
-            return new Sprite(
-                this.loader.resources[this.backgroundName()].texture
-            );
-        },
-
-        /**
-         * Create a sub-texture from the grid atlas.
-         *
-         * CRITICAL:  The first argument to `new Texture()` MUST be the
-         * Loader-created Texture object — NOT its .baseTexture.  In
-         * PixiJS 5.3 the constructor does:
-         *
-         *   if (baseTexture instanceof Texture) {
-         *       baseTexture = baseTexture.baseTexture;
-         *   }
-         *
-         * This code path + the subsequent frame setter logic is the
-         * ONLY combination that reliably produces correct UVs.
-         * Passing a raw BaseTexture directly skips this branch and
-         * causes "texture bleeding" (full atlas in every tile).
-         */
-        gridTexture(grid) {
-            var frame = Sprites.plain;
-
-            try {
-                if (grid.construction) {
-                    frame = Sprites.constructions[grid.construction.building_id] || frame;
-                } else if (grid.type === 1) {
-                    if (grid.building_id) {
-                        var bs = Sprites.buildings[grid.building_id];
-                        if (bs && typeof bs === 'object' && !bs.width) {
-                            frame = bs[this.planet.resource_id] || frame;
-                        } else {
-                            frame = bs || frame;
-                        }
-                    } else {
-                        frame = Sprites.resources[this.planet.resource_id] || frame;
-                    }
-                } else if (grid.building_id) {
-                    frame = Sprites.buildings[grid.building_id] || frame;
-                }
-            } catch (e) {
-                frame = Sprites.plain;
+            // Layer 0: planet background.
+            if (this._bgTexture && this._bgTexture.valid) {
+                this.container.addChild(new Sprite(this._bgTexture));
             }
 
-            // Pass the Loader's TEXTURE object (not baseTexture!) as
-            // first arg.  This is how the original code worked and is
-            // the only reliable path in PixiJS 5.3 for sub-textures.
-            return new Texture(
-                this.loader.resources.grid.texture,
-                frame
-            );
+            // Layer 1+: grid tiles.
+            var grids = this.planet.grids;
+            if (!grids || !grids.length) return;
+
+            for (var i = 0; i < grids.length; i++) {
+                try {
+                    this.container.addChild(this.makeSlot(grids[i]));
+                } catch (e) {
+                    console.warn('[Surface] slot', grids[i].id, e.message);
+                }
+            }
         },
 
-        gridSprite(grid) {
-            var sprite = new Sprite(this.gridTexture(grid));
+        /* ── single grid slot ────────────────────────────────── */
 
-            sprite.interactive = true;
-            sprite.buttonMode  = true;
-            sprite.hitArea     = Sprites.hitArea;
+        makeSlot(grid) {
+            var rect = this.pickRect(grid);
+
+            // Create sub-texture:  new Texture(masterAtlasTexture, frame)
+            // The first arg is the master Texture (NOT a BaseTexture).
+            // PixiJS 5 internally does:
+            //   if (baseTexture instanceof Texture) baseTexture = baseTexture.baseTexture;
+            // followed by correct frame/UV setup.
+            var tex = new Texture(this._gridAtlasTex, rect);
+            var sprite = new Sprite(tex);
 
             sprite.x = this.gridX(grid);
             sprite.y = this.gridY(grid);
 
-            sprite.on('mouseover', () => { sprite.alpha = 0.6; });
-            sprite.on('mouseout',  () => { sprite.alpha = 1; });
+            // Interaction — uses the hitArea polygon from Sprites.js
+            // for precise diamond-shaped click detection.
+            sprite.interactive = true;
+            sprite.buttonMode  = true;
+            sprite.hitArea     = Sprites.hitArea;
+
             sprite.on('pointerup', () => {
                 if (this.dragged <= this.clickTreshold) {
-                    this.gridClick(grid);
+                    EventBus.$emit(
+                        grid.building_id ? 'building-click' : 'grid-click',
+                        grid
+                    );
                 }
             });
 
-            this.gridLevel(grid, sprite);
-            this.gridRemaining(grid, sprite);
+            sprite.on('mouseover', () => { sprite.alpha = 0.6; });
+            sprite.on('mouseout',  () => { sprite.alpha = 1; });
+
+            // Level number.
+            if (grid.level) {
+                var lvl = new Text(grid.level, this.textStyle);
+                lvl.position.x = (sprite.width - lvl.width) / 2;
+                lvl.position.y = sprite.height - 50;
+                sprite.addChild(lvl);
+            }
+
+            // Countdown timer.
+            this.addTimer(grid, sprite);
 
             return sprite;
         },
 
-        gridClick(grid) {
-            EventBus.$emit(
-                grid.building_id ? 'building-click' : 'grid-click',
-                grid
-            );
+        /**
+         * Pick the correct Rectangle from Sprites.js for a grid slot.
+         */
+        pickRect(grid) {
+            // Default: empty plain tile.
+            var r = Sprites.plain;
+
+            try {
+                if (grid.construction) {
+                    // Under construction → ghost/outline sprite.
+                    r = Sprites.constructions[grid.construction.building_id] || r;
+
+                } else if (grid.type === 1) {
+                    // Resource slot.
+                    if (grid.building_id) {
+                        var bs = Sprites.buildings[grid.building_id];
+                        // Building 2 is special — has per-resource sub-map.
+                        if (bs && typeof bs === 'object' && !bs.width) {
+                            r = bs[this.planet.resource_id] || r;
+                        } else {
+                            r = bs || r;
+                        }
+                    } else {
+                        // Empty resource slot → resource crystal.
+                        r = Sprites.resources[this.planet.resource_id] || r;
+                    }
+
+                } else if (grid.building_id) {
+                    // Normal built slot.
+                    r = Sprites.buildings[grid.building_id] || r;
+                }
+            } catch (e) {
+                r = Sprites.plain;
+            }
+
+            return r;
+        },
+
+        addTimer(grid, sprite) {
+            var remaining, style;
+
+            if (grid.construction) {
+                remaining = grid.construction.remaining;
+                style = this.textStyle;
+            } else if (grid.training) {
+                remaining = grid.training.remaining;
+                style = _.assignIn({}, this.textStyle, { fill: '#ebb237' });
+            } else if (grid.upgrade) {
+                remaining = grid.upgrade.remaining;
+                style = this.textStyle;
+            }
+
+            if (!remaining) return;
+
+            var text = new Text(Filters.timer(remaining), style);
+            text.position.x = (sprite.width - text.width) / 2;
+            text.position.y = (sprite.height - text.height) / 2;
+            sprite.addChild(text);
+
+            var iv = setInterval(() => {
+                remaining -= 1;
+                text.text = Filters.timer(remaining);
+                if (!remaining) clearInterval(iv);
+            }, 1000);
+
+            this.intervals.push(iv);
         },
 
         /* ── layout ──────────────────────────────────────────── */
 
-        gridX(grid) {
-            return (grid.x - grid.y + 4) * 162 + (this.width - 1608) / 2;
-        },
-
-        gridY(grid) {
-            return (grid.x + grid.y) * 81 + (this.height - 888) / 2;
-        },
+        gridX(g) { return (g.x - g.y + 4) * 162 + (this.width - 1608) / 2; },
+        gridY(g) { return (g.x + g.y) * 81 + (this.height - 888) / 2; },
 
         containerScale() {
-            var w = this.rendererWidth();
-            var h = this.rendererHeight();
-
-            var current = _.findLast(
-                [{minWidth:1,maxHeight:592,ratio:0.64},
-                 {minWidth:992,maxHeight:765,ratio:0.827},
-                 {minWidth:1200,maxHeight:false,ratio:1}],
-                bp => bp.minWidth <= w
-            );
-            if (!current) return 1;
-            if (current.maxHeight === false || current.maxHeight >= h) return current.ratio;
-
-            current = _.findLast(
-                [{minWidth:1,maxHeight:592,ratio:0.64},
-                 {minWidth:992,maxHeight:765,ratio:0.827}],
-                bp => bp.maxHeight >= h
-            );
-            return current ? current.ratio : 1;
+            var w = this.vpW(), h = this.vpH();
+            if (w >= 1200) return 1;
+            if (w >= 992 && h >= 765) return 0.827;
+            return 0.64;
         },
 
         align() {
-            this.container.position.x = (this.renderer.width  - this.container.width)  / 2;
-            this.container.position.y = (this.renderer.height - this.container.height) / 2;
+            if (!this.renderer || !this.container) return;
+            this.container.position.set(
+                (this.renderer.width  - this.container.width)  / 2,
+                (this.renderer.height - this.container.height) / 2
+            );
         },
 
-        resize() {
+        onResize() {
             if (!this.renderer) return;
-            this.renderer.resize(this.rendererWidth(), this.rendererHeight());
+            this.renderer.resize(this.vpW(), this.vpH());
             this.container.scale.set(this.containerScale());
             this.align();
         },
@@ -399,11 +391,12 @@ export default {
 
             var minX = this.renderer.width  - this.container.width;
             var minY = this.renderer.height - this.container.height;
+            var p = this.container.position;
 
-            if (this.container.position.x < minX) this.container.position.x = minX;
-            if (this.container.position.y < minY) this.container.position.y = minY;
-            if (this.container.position.x > 0) this.container.position.x = 0;
-            if (this.container.position.y > 0) this.container.position.y = 0;
+            if (p.x < minX) p.x = minX;
+            if (p.y < minY) p.y = minY;
+            if (p.x > 0) p.x = 0;
+            if (p.y > 0) p.y = 0;
 
             this.renderer.render(this.stage);
         },
@@ -421,57 +414,15 @@ export default {
         onDragMove(e) {
             if (!this.isDragging) return;
             var pos = e.data.getLocalPosition(this.container.parent);
-            var prevX = this.container.position.x;
-            var prevY = this.container.position.y;
+            var px = this.container.position.x;
+            var py = this.container.position.y;
             this.container.position.x = pos.x - this.dragStartX;
             this.container.position.y = pos.y - this.dragStartY;
-            this.dragged += Math.abs(prevX - this.container.position.x)
-                          + Math.abs(prevY - this.container.position.y);
+            this.dragged += Math.abs(px - this.container.position.x)
+                          + Math.abs(py - this.container.position.y);
         },
 
-        onDragEnd() {
-            this.isDragging = false;
-        },
-
-        /* ── text helpers ────────────────────────────────────── */
-
-        gridLevel(grid, sprite) {
-            if (!grid.level) return;
-            var text = new Text(grid.level, this.textStyle);
-            text.position.x = (sprite.width - text.width) / 2;
-            text.position.y = sprite.height - 50;
-            sprite.addChild(text);
-        },
-
-        gridRemaining(grid, sprite) {
-            var remaining, textStyle;
-
-            if (grid.construction) {
-                remaining = grid.construction.remaining;
-                textStyle = this.textStyle;
-            } else if (grid.training) {
-                remaining = grid.training.remaining;
-                textStyle = _.assignIn({}, this.textStyle, { fill: '#ebb237' });
-            } else if (grid.upgrade) {
-                remaining = grid.upgrade.remaining;
-                textStyle = this.textStyle;
-            }
-
-            if (!remaining) return;
-
-            var text = new Text(Filters.timer(remaining), textStyle);
-            text.position.x = (sprite.width - text.width) / 2;
-            text.position.y = (sprite.height - text.height) / 2;
-            sprite.addChild(text);
-
-            var interval = setInterval(() => {
-                remaining -= 1;
-                text.text = Filters.timer(remaining);
-                if (!remaining) clearInterval(interval);
-            }, 1000);
-
-            this.intervals.push(interval);
-        },
+        onDragEnd() { this.isDragging = false; },
 
         /* ── cleanup ─────────────────────────────────────────── */
 
@@ -484,17 +435,15 @@ export default {
             this._loading = false;
             this.clearIntervals();
 
-            if (this.animationFrame) {
-                cancelAnimationFrame(this.animationFrame);
-                this.animationFrame = undefined;
-            }
+            if (this.animationFrame) { cancelAnimationFrame(this.animationFrame); this.animationFrame = undefined; }
             if (this.renderer)  { this.renderer.destroy();  this.renderer  = undefined; }
             if (this.container) { this.container.destroy(true); this.container = undefined; }
             if (this.stage)     { this.stage.destroy(true);     this.stage     = undefined; }
-            if (this.loader)    { this.loader.destroy();        this.loader    = undefined; }
 
+            this._bgTexture = undefined;
+            this._gridAtlasTex = undefined;
             utils.destroyTextureCache();
-            window.removeEventListener('resize', this.resize);
+            window.removeEventListener('resize', this.onResize);
         }
     }
 };
