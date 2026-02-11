@@ -89,6 +89,14 @@ export default {
 
         EventBus.$on('planet-updated', this.planetUpdated);
 
+        // If planet data was already fetched (cached by Sidebar), use it
+        // immediately.  initPixi is safe to call as soon as the component
+        // is mounted because rendererWidth/Height fall back to the prop
+        // dimensions when the viewport reports 0.
+        //
+        // If no cached data is available yet, we simply wait — the Sidebar
+        // will emit 'planet-updated' once its API call completes (either
+        // from its initial created() fetch or from its $route watcher).
         // If planet data was already fetched (cached by Sidebar), use it.
         // Defer to nextTick + requestAnimationFrame so the browser has
         // completed layout and the canvas / viewport have real dimensions.
@@ -102,6 +110,7 @@ export default {
 
         EventBus.$off('planet-updated', this.planetUpdated);
 
+        this._destroyed = true;
         this.destroyPixi();
     },
 
@@ -129,6 +138,10 @@ export default {
         },
 
         planetUpdated(planet) {
+            if (this._destroyed) {
+                return;
+            }
+
             this.planet = planet;
 
             if (!this.stage && !this._loading) {
@@ -165,7 +178,11 @@ export default {
                 const gridResource = this.loader.resources.grid;
 
                 if (!bgResource || bgResource.error || !gridResource || gridResource.error) {
-                    console.error('[Surface] Critical texture(s) failed to load. Aborting setup.');
+                    console.error('[Surface] Critical texture(s) failed to load — resetting for retry.');
+                    // Reset the Pixi state entirely so the next planetUpdated()
+                    // call can start fresh via initPixi() instead of getting
+                    // stuck in the broken updatePixi() path.
+                    this.destroyPixi();
                     return;
                 }
 
@@ -204,6 +221,14 @@ export default {
                 return;
             }
 
+            // If the grid sprite sheet never loaded (e.g. previous initPixi
+            // failed), we cannot create grid textures.  Reset and retry.
+            if (!this.loader || !this.loader.resources.grid || this.loader.resources.grid.error) {
+                this.destroyPixi();
+                this.initPixi();
+                return;
+            }
+
             const backgroundName = this.backgroundName();
 
             if (!this.loader.resources[backgroundName]) {
@@ -211,7 +236,9 @@ export default {
                 this.loader.add(backgroundName, this.background());
                 this.loader.load(() => {
                     this._loading = false;
-                    this.setup();
+                    if (!this._destroyed) {
+                        this.setup();
+                    }
                 });
             } else {
                 this.setup();
@@ -219,25 +246,28 @@ export default {
         },
 
         destroyPixi() {
-            if (!this.stage) {
-                return;
-            }
-
             this._loading = false;
             this.clearIntervals();
 
-            cancelAnimationFrame(this.animationFrame);
+            if (this.animationFrame) {
+                cancelAnimationFrame(this.animationFrame);
+                this.animationFrame = undefined;
+            }
 
             if (this.renderer) {
                 this.renderer.destroy();
                 this.renderer = undefined;
             }
 
-            this.container.destroy(true, true, true);
-            this.container = undefined;
+            if (this.container) {
+                this.container.destroy(true, true, true);
+                this.container = undefined;
+            }
 
-            this.stage.destroy(true, true, true);
-            this.stage = undefined;
+            if (this.stage) {
+                this.stage.destroy(true, true, true);
+                this.stage = undefined;
+            }
 
             if (this.loader) {
                 this.loader.destroy();
@@ -284,6 +314,10 @@ export default {
         },
 
         animate() {
+            if (this._destroyed || !this.renderer || !this.stage || !this.container) {
+                return;
+            }
+
             this.animationFrame = requestAnimationFrame(this.animate);
 
             const x = this.containerX();
@@ -384,6 +418,10 @@ export default {
             let current = _.findLast(
                 this.breakpoints, breakpoint => breakpoint.minWidth <= width
             );
+
+            if (!current) {
+                return 1;
+            }
 
             if (current.maxHeight === false || current.maxHeight >= height) {
                 return current.ratio;

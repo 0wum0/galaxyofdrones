@@ -86,4 +86,36 @@ class SurfaceRouteTest extends TestCase
         $this->get('/')
             ->assertRedirect();
     }
+
+    /**
+     * The surface page must include the PixiJS-related attributes on
+     * the router-view so the Surface component receives its required props.
+     */
+    public function testSurfacePageIncludesPixiProps()
+    {
+        $user = $this->createStartedUser();
+        $this->actingAs($user);
+
+        $this->get('/')
+            ->assertStatus(200)
+            ->assertSee('background-texture=')
+            ->assertSee('grid-texture-atlas=')
+            ->assertSee('sprite-grid.png');
+    }
+
+    /**
+     * The planet API must return HTTP 200 with grid data for the surface.
+     */
+    public function testPlanetApiReturnsGridsForSurface()
+    {
+        $user = $this->createStartedUser();
+        $this->actingAs($user);
+
+        $response = $this->getJson('/api/planet')
+            ->assertStatus(200)
+            ->assertJsonStructure(['grids', 'resource_id']);
+
+        $grids = $response->json('grids');
+        $this->assertNotEmpty($grids, 'Planet API must return non-empty grids for the surface.');
+    }
 }
