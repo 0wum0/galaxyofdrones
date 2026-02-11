@@ -282,11 +282,23 @@ export default {
             var grids = this.planet.grids;
             if (!grids || !grids.length || !this._gridImg) return;
 
-            for (var i = 0; i < grids.length; i++) {
+            // ── Normalize grid coordinates ──────────────────────
+            // The API returns absolute starmap coordinates (e.g.
+            // x=20, y=20) which produce huge pixel values when
+            // multiplied.  We need 0-based relative indices.
+            var minX = grids[0].x, minY = grids[0].y;
+            for (var i = 1; i < grids.length; i++) {
+                if (grids[i].x < minX) minX = grids[i].x;
+                if (grids[i].y < minY) minY = grids[i].y;
+            }
+            this._gridOffsetX = minX;
+            this._gridOffsetY = minY;
+
+            for (var j = 0; j < grids.length; j++) {
                 try {
-                    this.container.addChild(this.makeSlot(grids[i]));
+                    this.container.addChild(this.makeSlot(grids[j]));
                 } catch (e) {
-                    console.warn('[Surface] slot', i, e.message);
+                    console.warn('[Surface] slot', j, e.message);
                 }
             }
         },
@@ -296,10 +308,15 @@ export default {
             var tex    = cutSprite(this._gridImg, rect);
             var sprite = new Sprite(tex);
 
-            // Isometric position — grid.x/y are 0-based tile indices.
-            // Formula places tiles in a diamond pattern on the 1920×1080 canvas.
-            sprite.x = (grid.x - grid.y + 4) * 162 + (this.width - 1608) / 2;
-            sprite.y = (grid.x + grid.y) * 81 + (this.height - 888) / 2;
+            // Normalize to 0-based indices.
+            var relX = grid.x - this._gridOffsetX;
+            var relY = grid.y - this._gridOffsetY;
+
+            // Isometric diamond layout on the 1920×1080 canvas.
+            // +4 centers a 5×5 grid; (width-1608)/2 and (height-888)/2
+            // center the diamond within the background image.
+            sprite.x = (relX - relY + 4) * 162 + (this.width - 1608) / 2;
+            sprite.y = (relX + relY) * 81 + (this.height - 888) / 2;
 
             // Interaction.
             sprite.interactive = true;
