@@ -4,62 +4,39 @@
         <div v-if="!ready" class="surface-loading">
             <div class="surface-spinner"></div>
         </div>
-        <p v-if="errorMessage" class="surface-error-text">
-            {{ errorMessage }}
-        </p>
+        <p v-if="errorMessage" class="surface-error-text">{{ errorMessage }}</p>
     </div>
 </template>
 <script>
-import {
-    autoDetectRenderer, BaseTexture, Container, Sprite, utils, Text, Texture, Rectangle
-} from 'pixi.js';
-
+import * as PIXI from 'pixi.js';
 import { EventBus } from '../event-bus';
 import Filters from './Filters';
 import Sprites from './Sprites';
 
+PIXI.utils.skipHello();
+
 /**
- * Load an image and return a Promise that resolves with the Image element.
- * Crucially: does NOT set crossOrigin, so the browser loads it as a
- * plain same-origin request.  This is what makes it work where the PixiJS
- * Loader failed (it added crossOrigin='anonymous' causing CORS/tainted
- * texture issues).
+ * Load an image via native <img> (no CORS, no PixiJS Loader).
  */
-function loadImage(url) {
-    return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = (e) => reject(new Error(`Image load failed: ${url}`));
+function loadImg(url) {
+    return new Promise(function (resolve, reject) {
+        var img = new Image();
+        img.onload = function () { resolve(img); };
+        img.onerror = function () { reject(new Error('Image load failed: ' + url)); };
         img.src = url;
     });
 }
 
 export default {
     props: {
-        width: {
-            type: Number,
-            required: true
-        },
-
-        height: {
-            type: Number,
-            required: true
-        },
-
-        backgroundTexture: {
-            type: String,
-            required: true
-        },
-
-        gridTextureAtlas: {
-            type: String,
-            required: true
-        }
+        width:             { type: Number, required: true },
+        height:            { type: Number, required: true },
+        backgroundTexture: { type: String, required: true },
+        gridTextureAtlas:  { type: String, required: true }
     },
 
-    data() {
+    data: function () {
         return {
-            $viewport: undefined,
             animationFrame: undefined,
             clickTreshold: 5,
             isDragging: false,
@@ -70,457 +47,427 @@ export default {
             intervals: [],
             renderer: undefined,
             stage: undefined,
-            bgBaseTexture: undefined,
-            gridBaseTexture: undefined,
+            bgBaseTex: null,
+            gridBaseTex: null,
             ready: false,
-            retryCount: 0,
-            maxRetries: 3,
             errorMessage: '',
-            breakpoints: [
-                { minWidth: 1, maxHeight: 592, ratio: 0.64 },
-                { minWidth: 992, maxHeight: 765, ratio: 0.827 },
-                { minWidth: 1200, maxHeight: false, ratio: 1 }
-            ],
-            planet: {
-                resource_id: undefined,
-                grids: []
-            },
+            planet: { resource_id: undefined, grids: [] },
             textStyle: {
-                fontFamily: 'Exo 2',
-                fontSize: '14px',
-                fill: '#fff',
-                align: 'center',
-                stroke: '#0e141c',
-                strokeThickness: 4
+                fontFamily: 'Exo 2', fontSize: '14px', fill: '#fff',
+                align: 'center', stroke: '#0e141c', strokeThickness: 4
             }
         };
     },
 
-    created() {
-        utils.skipHello();
-    },
-
-    mounted() {
+    mounted: function () {
         this._destroyed = false;
         this._hasPlanetData = false;
-        this.$viewport = $(this.$el);
+        this._loading = false;
 
-        EventBus.$on('planet-updated', this.planetUpdated);
+        EventBus.$on('planet-updated', this.onPlanetData);
 
-        // Strategy 1: Ask Sidebar for cached data.
+        // 1) Ask Sidebar for cached data (instant if available).
         EventBus.$emit('planet-data-request');
 
-        // Strategy 2: Immediate direct API fetch.
-        this.$nextTick(() => {
+        // 2) Direct API fetch — fires immediately if Sidebar had nothing.
+        this.$nextTick(function () {
             if (!this._destroyed && !this._hasPlanetData) {
-                this.fetchPlanetDirect();
+                this.fetchPlanet();
             }
-        });
+        }.bind(this));
 
-        // Strategy 3: Safety net after 3 s.
-        this._retryTimer = setTimeout(() => {
+        // 3) Safety-net retry.
+        this._timer = setTimeout(function () {
             if (!this._destroyed && !this._hasPlanetData) {
-                EventBus.$emit('planet-data-request');
+                this.fetchPlanet();
             }
-        }, 3000);
+        }.bind(this), 3000);
     },
 
-    beforeDestroy() {
+    beforeDestroy: function () {
         this._destroyed = true;
-
-        EventBus.$off('planet-updated', this.planetUpdated);
-
-        if (this._retryTimer) {
-            clearTimeout(this._retryTimer);
-            this._retryTimer = undefined;
-        }
-
-        this.destroyPixi();
+        EventBus.$off('planet-updated', this.onPlanetData);
+        clearTimeout(this._timer);
+        this.teardown();
     },
 
     methods: {
-        /**
-         * Strip origin from URL → root-relative path.
-         */
-        toLocalPath(url) {
+        /* ── helpers ─────────────────────────────────────────── */
+        localUrl: function (url) {
             if (!url) return url;
-            try {
-                return new URL(url, window.location.origin).pathname;
-            } catch (e) {
-                return url.replace(/^https?:\/\/[^/]+/, '');
-            }
+            try { return new URL(url, location.origin).pathname; }
+            catch (e) { return url.replace(/^https?:\/\/[^\/]+/, ''); }
         },
 
-        /**
-         * CSS fallback: planet image on the viewport.
-         */
-        applyCssBackground() {
-            if (!this.planet.resource_id || !this.$refs.viewport) return;
-            this.$refs.viewport.style.backgroundImage =
-                `url(${this.toLocalPath(this.background())})`;
+        bgUrl: function () {
+            return this.localUrl(
+                this.backgroundTexture.replace('__resource__', this.planet.resource_id)
+            );
         },
 
-        // ─────────────── Data fetching ────────────────────────────
-        fetchPlanetDirect() {
+        gridUrl: function () {
+            return this.localUrl(this.gridTextureAtlas);
+        },
+
+        vpWidth: function () {
+            var w = this.$refs.viewport ? this.$refs.viewport.clientWidth : 0;
+            return w > 1 ? w : this.width;
+        },
+
+        vpHeight: function () {
+            var h = this.$refs.viewport ? this.$refs.viewport.clientHeight : 0;
+            return h > 1 ? h : this.height;
+        },
+
+        /* ── data fetching ───────────────────────────────────── */
+        fetchPlanet: function () {
             if (this._fetchInFlight) return;
             this._fetchInFlight = true;
-
-            axios.get('/api/planet').then(response => {
-                this._fetchInFlight = false;
-                if (!this._destroyed && response.data && response.data.id) {
-                    this.planetUpdated(response.data);
+            var self = this;
+            axios.get('/api/planet').then(function (r) {
+                self._fetchInFlight = false;
+                if (!self._destroyed && r.data && r.data.id) {
+                    self.onPlanetData(r.data);
                 }
-            }).catch(err => {
-                this._fetchInFlight = false;
-                console.error('[Surface] API fetch failed:', err);
-                if (!this._destroyed && !this._hasPlanetData) {
-                    this.errorMessage = 'Planet data could not be loaded.';
+            }).catch(function (err) {
+                self._fetchInFlight = false;
+                if (!self._destroyed && !self._hasPlanetData) {
+                    self.errorMessage = 'Planet data could not be loaded.';
                 }
             });
         },
 
-        // ─────────────── Planet data handler ──────────────────────
-        planetUpdated(planet) {
-            if (this._destroyed) return;
-            if (!planet || !planet.resource_id) return;
+        onPlanetData: function (planet) {
+            if (this._destroyed || !planet || !planet.resource_id) return;
 
+            // Refresh existing scene.
             if (this._hasPlanetData && this.stage) {
                 this.planet = planet;
-                this.applyCssBackground();
-                this.safeSetup();
+                try { this.buildScene(); } catch (e) { /* keep old scene */ }
                 return;
             }
 
             this._hasPlanetData = true;
             this.planet = planet;
-            this.applyCssBackground();
 
-            if (!this.stage && !this._loading) {
-                this.$viewport = $(this.$el);
-                this.initPixi();
+            // Show CSS fallback immediately.
+            if (this.$refs.viewport) {
+                this.$refs.viewport.style.backgroundImage = 'url(' + this.bgUrl() + ')';
+            }
+
+            if (!this._loading && !this.stage) {
+                this.init();
             }
         },
 
-        // ─────────────── PixiJS initialisation ────────────────────
-        /**
-         * Core init: load textures via native Image (NOT the PixiJS
-         * Loader) then build the PixiJS scene.
-         *
-         * The PixiJS Loader (resource-loader) was the root cause of the
-         * black-screen bug: it adds crossOrigin='anonymous' to Image
-         * elements under certain URL conditions, which causes CORS
-         * failures or "tainted canvas" in WebGL.  Native Image loading
-         * without crossOrigin works reliably (proven by the modal
-         * preview) and lets us create BaseTextures from the loaded
-         * HTMLImageElement directly.
-         */
-        initPixi() {
-            if (this._destroyed) return;
+        /* ── PixiJS init ─────────────────────────────────────── */
+        init: function () {
+            if (this._destroyed || this._loading) return;
             this._loading = true;
             this.errorMessage = '';
 
-            const bgUrl  = this.toLocalPath(this.background());
-            const gridUrl = this.toLocalPath(this.gridTextureAtlas);
+            var self = this;
+            var bg  = this.bgUrl();
+            var grid = this.gridUrl();
 
-            // Load both images in parallel using plain <img> elements.
-            Promise.all([loadImage(bgUrl), loadImage(gridUrl)])
-                .then(([bgImg, gridImg]) => {
-                    this._loading = false;
-                    if (this._destroyed) return;
+            Promise.all([loadImg(bg), loadImg(grid)]).then(function (imgs) {
+                self._loading = false;
+                if (self._destroyed) return;
 
-                    // Create PixiJS BaseTextures from the loaded images.
-                    this.bgBaseTexture   = new BaseTexture(bgImg);
-                    this.gridBaseTexture = new BaseTexture(gridImg);
+                try {
+                    // Create BaseTextures from loaded HTMLImageElements.
+                    self.bgBaseTex  = new PIXI.BaseTexture(imgs[0]);
+                    self.gridBaseTex = new PIXI.BaseTexture(imgs[1]);
 
-                    if (this.bgBaseTexture.width < 1 || this.gridBaseTexture.width < 1) {
-                        throw new Error('Texture dimensions are 0 — image may be tainted.');
-                    }
-
-                    this.createScene();
-                    this.setup();
-                    this.align();
-                    this.animate();
-                    this.ready = true;
-                })
-                .catch(err => {
-                    this._loading = false;
-                    console.error('[Surface] Texture load/init failed:', err);
-                    if (!this._destroyed) {
-                        this.destroyPixi();
-                        this.retryInit();
-                    }
-                });
+                    self.createRenderer();
+                    self.buildScene();
+                    self.startLoop();
+                    self.ready = true;
+                } catch (err) {
+                    console.error('[Surface] init error:', err);
+                    self.errorMessage = 'Renderer error: ' + err.message;
+                    self.ready = true; // show CSS fallback
+                }
+            }).catch(function (err) {
+                self._loading = false;
+                console.error('[Surface] image load error:', err);
+                // Even if textures fail → build scene with Graphics fallback.
+                try {
+                    self.bgBaseTex = null;
+                    self.gridBaseTex = null;
+                    self.createRenderer();
+                    self.buildScene();
+                    self.startLoop();
+                    self.ready = true;
+                } catch (e2) {
+                    console.error('[Surface] fallback init error:', e2);
+                    self.errorMessage = 'Surface could not be loaded.';
+                    self.ready = true;
+                }
+            });
         },
 
-        /**
-         * Build the PixiJS stage, container and renderer.
-         * Called once after textures are confirmed loaded.
-         */
-        createScene() {
-            this.stage = new Container();
-
-            this.container = new Container();
+        createRenderer: function () {
+            this.stage = new PIXI.Container();
+            this.container = new PIXI.Container();
             this.container.interactive = true;
             this.container.interactiveChildren = true;
-            this.container.scale.set(this.containerScale());
 
-            // Mouse events
-            this.container.on('mousedown', this.mouseDown);
-            this.container.on('mousemove', this.mouseMove);
-            this.container.on('mouseup', this.mouseUp);
-            this.container.on('mouseupoutside', this.mouseUp);
-
-            // Touch events (critical for mobile pan)
-            this.container.on('touchstart', this.mouseDown);
-            this.container.on('touchmove', this.mouseMove);
-            this.container.on('touchend', this.mouseUp);
-            this.container.on('touchendoutside', this.mouseUp);
-
-            // Pointer events (unified — covers mouse + touch + pen)
-            this.container.on('pointerdown', this.mouseDown);
-            this.container.on('pointermove', this.mouseMove);
-            this.container.on('pointerup', this.mouseUp);
-            this.container.on('pointerupoutside', this.mouseUp);
+            // Pan / drag — mouse + touch + pointer
+            var events = {
+                mousedown: this.onDragStart, mousemove: this.onDragMove,
+                mouseup: this.onDragEnd, mouseupoutside: this.onDragEnd,
+                touchstart: this.onDragStart, touchmove: this.onDragMove,
+                touchend: this.onDragEnd, touchendoutside: this.onDragEnd,
+                pointerdown: this.onDragStart, pointermove: this.onDragMove,
+                pointerup: this.onDragEnd, pointerupoutside: this.onDragEnd
+            };
+            for (var ev in events) {
+                this.container.on(ev, events[ev]);
+            }
 
             this.stage.addChild(this.container);
 
-            this.renderer = autoDetectRenderer({
-                width: this.rendererWidth(),
-                height: this.rendererHeight(),
+            this.renderer = PIXI.autoDetectRenderer({
+                width: this.vpWidth(),
+                height: this.vpHeight(),
                 view: this.$refs.canvas,
-                transparent: true,
-                // Required for interaction on some older WebGL contexts:
+                backgroundColor: 0x0b0e14,
                 antialias: false,
                 resolution: 1
             });
 
-            window.addEventListener('resize', this.resize);
+            window.addEventListener('resize', this.onResize);
         },
 
-        retryInit() {
-            this.retryCount += 1;
-
-            if (this.retryCount > this.maxRetries) {
-                console.error(`[Surface] Max retries (${this.maxRetries}) exhausted.`);
-                this.ready = true;
-                return;
-            }
-
-            const delay = Math.min(1000 * (2 ** (this.retryCount - 1)), 8000);
-
-            setTimeout(() => {
-                if (!this._destroyed && !this.stage && !this._loading && this.planet.resource_id) {
-                    this.initPixi();
-                }
-            }, delay);
-        },
-
-        destroyPixi() {
-            this._loading = false;
-            this.clearIntervals();
-
-            if (this.animationFrame) { cancelAnimationFrame(this.animationFrame); this.animationFrame = undefined; }
-            if (this.renderer) { this.renderer.destroy(); this.renderer = undefined; }
-            if (this.container) { this.container.destroy(true); this.container = undefined; }
-            if (this.stage) { this.stage.destroy(true); this.stage = undefined; }
-            if (this.bgBaseTexture) { this.bgBaseTexture.destroy(); this.bgBaseTexture = undefined; }
-            if (this.gridBaseTexture) { this.gridBaseTexture.destroy(); this.gridBaseTexture = undefined; }
-
-            utils.destroyTextureCache();
-            window.removeEventListener('resize', this.resize);
-        },
-
-        // ─────────────── Scene setup ──────────────────────────────
-        setup() {
+        /* ── scene building ──────────────────────────────────── */
+        buildScene: function () {
             this.clearIntervals();
             this.container.removeChildren();
 
-            // 1) Background sprite (layer 0 — behind everything)
-            const bgTexture = new Texture(this.bgBaseTexture);
-            this.container.addChild(new Sprite(bgTexture));
+            var scale = this.containerScale();
+            this.container.scale.set(scale);
 
-            // 2) Grid sprites (layer 1+ — on top of background)
-            if (this.planet.grids && this.planet.grids.length) {
-                _.forEach(this.planet.grids, grid => {
-                    this.container.addChild(this.gridSprite(grid));
-                });
+            // 1) Background — texture sprite or filled rectangle.
+            if (this.bgBaseTex && this.bgBaseTex.width > 0) {
+                var bgSprite = new PIXI.Sprite(new PIXI.Texture(this.bgBaseTex));
+                this.container.addChild(bgSprite);
+            } else {
+                // Fallback: dark filled rectangle so grids are visible.
+                var bg = new PIXI.Graphics();
+                bg.beginFill(0x0b0e14);
+                bg.drawRect(0, 0, this.width, this.height);
+                bg.endFill();
+                this.container.addChild(bg);
             }
+
+            // 2) Grid tiles.
+            var grids = this.planet.grids;
+            if (grids && grids.length) {
+                for (var i = 0; i < grids.length; i++) {
+                    try {
+                        this.container.addChild(this.makeGridSlot(grids[i]));
+                    } catch (e) {
+                        // Single grid slot failure must not kill the loop.
+                        console.warn('[Surface] grid slot error:', e.message);
+                    }
+                }
+            }
+
+            // Centre the container.
+            this.alignContainer();
         },
 
-        safeSetup() {
-            if (!this.stage || !this.bgBaseTexture || !this.gridBaseTexture) return;
-            try { this.setup(); }
-            catch (err) { console.error('[Surface] setup error:', err); }
+        makeGridSlot: function (grid) {
+            var slot;
+            var x = this.gridX(grid);
+            var y = this.gridY(grid);
+
+            if (this.gridBaseTex && this.gridBaseTex.width > 0) {
+                // Sprite from the grid atlas.
+                var frame = this.pickFrame(grid);
+                var tex = new PIXI.Texture(this.gridBaseTex, frame);
+                slot = new PIXI.Sprite(tex);
+            } else {
+                // Fallback: outlined diamond shape so the grid is visible
+                // and clickable even without textures.
+                slot = new PIXI.Graphics();
+                slot.lineStyle(1, 0x4183d7, 0.8);
+                slot.beginFill(0x19222f, 0.5);
+                slot.moveTo(160, 0);
+                slot.lineTo(320, 80);
+                slot.lineTo(160, 160);
+                slot.lineTo(0, 80);
+                slot.closePath();
+                slot.endFill();
+            }
+
+            slot.x = x;
+            slot.y = y;
+            slot.interactive = true;
+            slot.buttonMode = true;
+            slot.hitArea = Sprites.hitArea;
+
+            var self = this;
+            slot.on('pointerdown', function () { self._slotPointerDown = true; });
+            slot.on('pointerup', function () {
+                if (self._slotPointerDown && self.dragged <= self.clickTreshold) {
+                    self.gridClick(grid);
+                }
+                self._slotPointerDown = false;
+            });
+            slot.on('pointerover', function () { slot.alpha = 0.65; });
+            slot.on('pointerout',  function () { slot.alpha = 1; });
+
+            // Level label.
+            if (grid.level) {
+                var lvl = new PIXI.Text(grid.level, this.textStyle);
+                lvl.x = 160 - lvl.width / 2;
+                lvl.y = (slot.height || 160) - 50;
+                slot.addChild(lvl);
+            }
+
+            // Timer label.
+            this.addTimer(grid, slot);
+
+            return slot;
         },
 
-        clearIntervals() {
-            _.forEach(this.intervals, interval => clearInterval(interval));
-            this.intervals = [];
-        },
-
-        // ─────────────── Layout ───────────────────────────────────
-        resize() {
-            if (!this.renderer) return;
-            this.renderer.resize(this.rendererWidth(), this.rendererHeight());
-            this.container.scale.set(this.containerScale());
-            this.align();
-        },
-
-        align() {
-            this.container.position.x = this.centerX();
-            this.container.position.y = this.centerY();
-        },
-
-        // ─────────────── Render loop ──────────────────────────────
-        animate() {
-            if (this._destroyed || !this.renderer || !this.stage || !this.container) return;
-
-            this.animationFrame = requestAnimationFrame(this.animate);
-
-            // Clamp container position so the user can't pan beyond the edges.
-            const minX = this.containerX();
-            const minY = this.containerY();
-
-            if (this.container.position.x < minX) this.container.position.x = minX;
-            if (this.container.position.y < minY) this.container.position.y = minY;
-            if (this.container.position.x > 0) this.container.position.x = 0;
-            if (this.container.position.y > 0) this.container.position.y = 0;
-
-            this.renderer.render(this.stage);
-        },
-
-        // ─────────────── Pan / drag (mouse + touch) ──────────────
-        mouseDown(e) {
-            const start = e.data.getLocalPosition(this.container.parent);
-            this.dragStartX = start.x - this.container.position.x;
-            this.dragStartY = start.y - this.container.position.y;
-            this.isDragging = true;
-            this.dragged = 0;
-        },
-
-        mouseMove(e) {
-            if (!this.isDragging) return;
-            const moved = e.data.getLocalPosition(this.container.parent);
-            const prevX = this.container.position.x;
-            const prevY = this.container.position.y;
-            this.container.position.x = moved.x - this.dragStartX;
-            this.container.position.y = moved.y - this.dragStartY;
-            this.dragged += Math.abs(prevX - this.container.position.x);
-            this.dragged += Math.abs(prevY - this.container.position.y);
-        },
-
-        mouseUp() {
-            this.isDragging = false;
-        },
-
-        // ─────────────── Texture helpers ──────────────────────────
-        background() {
-            return this.backgroundTexture.replace('__resource__', this.planet.resource_id);
-        },
-
-        // ─────────────── Layout helpers ───────────────────────────
-        rendererWidth() {
-            const w = this.$viewport ? this.$viewport.width() : 0;
-            return w > 1 ? w : this.width;
-        },
-
-        rendererHeight() {
-            const h = this.$viewport ? this.$viewport.height() : 0;
-            return h > 1 ? h : this.height;
-        },
-
-        centerX() { return this.containerX() / 2; },
-        centerY() { return this.containerY() / 2; },
-        containerX() { return this.renderer.width - this.container.width; },
-        containerY() { return this.renderer.height - this.container.height; },
-
-        containerScale() {
-            const width = this.rendererWidth();
-            const height = this.rendererHeight();
-
-            let current = _.findLast(this.breakpoints, bp => bp.minWidth <= width);
-            if (!current) return 1;
-            if (current.maxHeight === false || current.maxHeight >= height) return current.ratio;
-
-            current = _.findLast(this.breakpoints, bp => bp.maxHeight >= height);
-            return !_.isUndefined(current) ? current.ratio : 1;
-        },
-
-        // ─────────────── Grid sprites ─────────────────────────────
-        gridSprite(grid) {
-            const sprite = new Sprite(this.gridTexture(grid));
-            sprite.interactive = true;
-            sprite.hitArea = Sprites.hitArea;
-            sprite.x = this.gridX(grid);
-            sprite.y = this.gridY(grid);
-            sprite.on('mouseover', () => { sprite.alpha = 0.6; });
-            sprite.on('mouseout',  () => { sprite.alpha = 1; });
-            sprite.on('click',     () => this.gridClick(grid));
-            sprite.on('tap',       () => this.gridClick(grid));
-            this.gridLevel(grid, sprite);
-            this.gridRemaining(grid, sprite);
-            return sprite;
-        },
-
-        gridTexture(grid) {
-            let frame = Sprites.plain;
+        pickFrame: function (grid) {
+            var frame = Sprites.plain;
             try {
                 if (grid.construction) {
-                    frame = Sprites.constructions[grid.construction.building_id] || Sprites.plain;
+                    frame = Sprites.constructions[grid.construction.building_id] || frame;
                 } else if (grid.type === 1) {
                     if (grid.building_id) {
-                        const bs = Sprites.buildings[grid.building_id];
+                        var bs = Sprites.buildings[grid.building_id];
                         if (bs && typeof bs === 'object' && !bs.width) {
-                            frame = bs[this.planet.resource_id] || Sprites.plain;
+                            frame = bs[this.planet.resource_id] || frame;
                         } else {
-                            frame = bs || Sprites.plain;
+                            frame = bs || frame;
                         }
                     } else {
-                        frame = Sprites.resources[this.planet.resource_id] || Sprites.plain;
+                        frame = Sprites.resources[this.planet.resource_id] || frame;
                     }
                 } else if (grid.building_id) {
-                    frame = Sprites.buildings[grid.building_id] || Sprites.plain;
+                    frame = Sprites.buildings[grid.building_id] || frame;
                 }
-            } catch (e) {
-                frame = Sprites.plain;
-            }
-            return new Texture(this.gridBaseTexture, frame);
+            } catch (e) { /* keep default frame */ }
+            return frame;
         },
 
-        gridX(grid) { return (grid.x - grid.y + 4) * 162 + (this.width - 1608) / 2; },
-        gridY(grid) { return (grid.x + grid.y) * 81 + (this.height - 888) / 2; },
-
-        gridClick(grid) {
-            if (this.dragged > this.clickTreshold) return;
-            EventBus.$emit(grid.building_id ? 'building-click' : 'grid-click', grid);
-        },
-
-        gridLevel(grid, sprite) {
-            if (!grid.level) return;
-            const text = new Text(grid.level, this.textStyle);
-            text.position.x = (sprite.width - text.width) / 2;
-            text.position.y = sprite.height - 50;
-            sprite.addChild(text);
-        },
-
-        gridRemaining(grid, sprite) {
-            let remaining, textStyle;
-            if (grid.construction)  { ({ remaining } = grid.construction); ({ textStyle } = this); }
-            else if (grid.training) { ({ remaining } = grid.training); textStyle = _.assignIn({}, this.textStyle, { fill: '#ebb237' }); }
-            else if (grid.upgrade)  { ({ remaining } = grid.upgrade); ({ textStyle } = this); }
+        addTimer: function (grid, slot) {
+            var remaining, style;
+            if (grid.construction)       { remaining = grid.construction.remaining; style = this.textStyle; }
+            else if (grid.training)      { remaining = grid.training.remaining; style = _.assignIn({}, this.textStyle, { fill: '#ebb237' }); }
+            else if (grid.upgrade)       { remaining = grid.upgrade.remaining; style = this.textStyle; }
             if (!remaining) return;
 
-            const text = new Text(Filters.timer(remaining), textStyle);
-            text.position.x = (sprite.width - text.width) / 2;
-            text.position.y = (sprite.height - text.height) / 2;
-            sprite.addChild(text);
+            var text = new PIXI.Text(Filters.timer(remaining), style);
+            text.x = 160 - text.width / 2;
+            text.y = ((slot.height || 160) - text.height) / 2;
+            slot.addChild(text);
 
-            const interval = setInterval(() => {
+            var interval = setInterval(function () {
                 remaining -= 1;
                 text.text = Filters.timer(remaining);
                 if (!remaining) clearInterval(interval);
             }, 1000);
             this.intervals.push(interval);
+        },
+
+        /* ── grid events ─────────────────────────────────────── */
+        gridClick: function (grid) {
+            EventBus.$emit(grid.building_id ? 'building-click' : 'grid-click', grid);
+        },
+
+        /* ── layout ──────────────────────────────────────────── */
+        gridX: function (grid) { return (grid.x - grid.y + 4) * 162 + (this.width - 1608) / 2; },
+        gridY: function (grid) { return (grid.x + grid.y) * 81 + (this.height - 888) / 2; },
+
+        containerScale: function () {
+            var w = this.vpWidth(), h = this.vpHeight();
+            if (w >= 1200) return 1;
+            if (w >= 992 && h >= 765) return 0.827;
+            if (h >= 592) return 0.64;
+            return 0.64;
+        },
+
+        alignContainer: function () {
+            if (!this.renderer || !this.container) return;
+            var cx = (this.renderer.width - this.container.width) / 2;
+            var cy = (this.renderer.height - this.container.height) / 2;
+            this.container.position.set(cx, cy);
+        },
+
+        /* ── render loop ─────────────────────────────────────── */
+        startLoop: function () {
+            var self = this;
+            function loop() {
+                if (self._destroyed || !self.renderer || !self.stage) return;
+                self.animationFrame = requestAnimationFrame(loop);
+
+                // Clamp pan.
+                var minX = self.renderer.width - self.container.width;
+                var minY = self.renderer.height - self.container.height;
+                var pos = self.container.position;
+                if (pos.x < minX) pos.x = minX;
+                if (pos.y < minY) pos.y = minY;
+                if (pos.x > 0) pos.x = 0;
+                if (pos.y > 0) pos.y = 0;
+
+                self.renderer.render(self.stage);
+            }
+            loop();
+        },
+
+        /* ── pan / drag ──────────────────────────────────────── */
+        onDragStart: function (e) {
+            var p = e.data.getLocalPosition(this.stage);
+            this.dragStartX = p.x - this.container.position.x;
+            this.dragStartY = p.y - this.container.position.y;
+            this.isDragging = true;
+            this.dragged = 0;
+        },
+
+        onDragMove: function (e) {
+            if (!this.isDragging) return;
+            var p = e.data.getLocalPosition(this.stage);
+            var px = this.container.position.x;
+            var py = this.container.position.y;
+            this.container.position.x = p.x - this.dragStartX;
+            this.container.position.y = p.y - this.dragStartY;
+            this.dragged += Math.abs(px - this.container.position.x) + Math.abs(py - this.container.position.y);
+        },
+
+        onDragEnd: function () { this.isDragging = false; },
+
+        /* ── resize ──────────────────────────────────────────── */
+        onResize: function () {
+            if (!this.renderer) return;
+            this.renderer.resize(this.vpWidth(), this.vpHeight());
+            this.container.scale.set(this.containerScale());
+            this.alignContainer();
+        },
+
+        /* ── cleanup ─────────────────────────────────────────── */
+        clearIntervals: function () {
+            for (var i = 0; i < this.intervals.length; i++) clearInterval(this.intervals[i]);
+            this.intervals = [];
+        },
+
+        teardown: function () {
+            this._loading = false;
+            this.clearIntervals();
+            if (this.animationFrame) cancelAnimationFrame(this.animationFrame);
+            if (this.renderer)   this.renderer.destroy();
+            if (this.container)  this.container.destroy(true);
+            if (this.stage)      this.stage.destroy(true);
+            if (this.bgBaseTex)  this.bgBaseTex.destroy();
+            if (this.gridBaseTex) this.gridBaseTex.destroy();
+            this.renderer = this.container = this.stage = this.bgBaseTex = this.gridBaseTex = undefined;
+            PIXI.utils.destroyTextureCache();
+            window.removeEventListener('resize', this.onResize);
         }
     }
 };
