@@ -84,26 +84,50 @@ export default {
     },
 
     mounted() {
+        this._destroyed = false;
         this.$viewport = $(this.$el).parent();
 
         EventBus.$on('planet-updated', this.planetUpdated);
 
-        // If planet data was already fetched (cached by Sidebar), use it
-        // immediately.  No timing tricks — initPixi is safe to call as
-        // soon as the component is mounted because rendererWidth/Height
-        // fall back to the prop dimensions when the viewport reports 0.
+        // If planet data was already fetched (cached by Sidebar), use it.
+        // Defer to nextTick + requestAnimationFrame so the browser has
+        // completed layout and the canvas / viewport have real dimensions.
         if (EventBus._lastPlanetData) {
-            this.planetUpdated(EventBus._lastPlanetData);
+            this.deferInit(EventBus._lastPlanetData);
         }
     },
 
     beforeDestroy() {
+        this._destroyed = true;
+
         EventBus.$off('planet-updated', this.planetUpdated);
 
         this.destroyPixi();
     },
 
     methods: {
+        /**
+         * Defer planet data handling until the browser has completed at
+         * least one layout pass.  This prevents PixiJS from creating a
+         * renderer with stale/zero viewport dimensions — the most common
+         * cause of the "blank surface" bug after an SPA route transition.
+         */
+        deferInit(planet) {
+            this.$nextTick(() => {
+                if (this._destroyed) return;
+                requestAnimationFrame(() => {
+                    if (this._destroyed) return;
+                    // If a live planet-updated event already triggered
+                    // initPixi while we were waiting, skip the deferred
+                    // call to avoid overwriting fresh data or double-init.
+                    if (this.stage || this._loading) return;
+                    // Re-read viewport now that layout is stable.
+                    this.$viewport = $(this.$el).parent();
+                    this.planetUpdated(planet);
+                });
+            });
+        },
+
         planetUpdated(planet) {
             this.planet = planet;
 
@@ -118,6 +142,8 @@ export default {
         },
 
         initPixi() {
+            if (this._destroyed) return;
+
             this._loading = true;
 
             this.loader = new Loader();
@@ -131,6 +157,8 @@ export default {
             this.loader.add('grid', this.gridTextureAtlas);
             this.loader.load(() => {
                 this._loading = false;
+
+                if (this._destroyed) return;
 
                 // Verify that critical resources loaded successfully.
                 const bgResource = this.loader.resources[this.backgroundName()];
@@ -162,7 +190,7 @@ export default {
 
             this.renderer = autoDetectRenderer({
                 height: this.rendererHeight(),
-                transparent: true,
+                backgroundColor: 0x0b0e14,
                 view: this.$el,
                 width: this.rendererWidth()
             });

@@ -1,4 +1,9 @@
 .surface {
+    // Dark background ensures the canvas is always visually distinct from
+    // the starmap background while PixiJS loads planet textures.  Without
+    // this the transparent canvas let the container-app's starmap-bg.png
+    // bleed through, making it look like the surface never loaded.
+    background: #0b0e14;
     display: block;
     // Position the canvas absolutely within the container-app so it fills
     // the entire viewport without being pushed by sibling elements in the
