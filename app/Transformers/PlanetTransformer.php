@@ -163,6 +163,7 @@ class PlanetTransformer extends Transformer
                         : null,
                 ];
             })
-            ->values();
+            ->values()
+            ->all();
     }
 }
