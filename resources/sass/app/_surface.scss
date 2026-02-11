@@ -1,5 +1,7 @@
 // Wrapper: fills the container-app so the canvas and loading overlay
-// are correctly positioned.
+// are correctly positioned.  Also serves as the CSS-fallback layer:
+// Surface.vue sets background-image on this element via JS so that the
+// planet image is visible even while PixiJS loads (or if WebGL fails).
 .surface-viewport {
     position: absolute;
     top: 0;
@@ -8,15 +10,23 @@
     height: 100%;
     z-index: 0;
     overflow: hidden;
+    // Default dark background; replaced by JS with the planet image.
+    background-color: #0b0e14;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
 }
 
 .surface {
-    // Dark background ensures the canvas is always visually distinct from
-    // the starmap background while PixiJS loads planet textures.
-    background: #0b0e14;
+    // The <canvas> sits on top of the CSS fallback background.
+    // Once PixiJS renders successfully the canvas covers it.
     display: block;
     width: 100%;
     height: 100%;
+    // Keep the canvas transparent so the CSS fallback background
+    // shines through until PixiJS paints real content.  PixiJS
+    // controls the actual clear colour via backgroundColor anyway.
+    background: transparent;
 }
 
 // Loading overlay — shown until PixiJS successfully renders.
