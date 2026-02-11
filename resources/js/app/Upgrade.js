@@ -92,13 +92,19 @@ export default Modal.extend({
         store() {
             axios.post(
                 this.storeUrl.replace('__grid__', this.grid.id)
-            );
+            ).then(() => {
+                this.close();
+                EventBus.$emit('planet-update');
+            });
         },
 
         destroy() {
             axios.delete(
                 this.destroyUrl.replace('__grid__', this.grid.id)
-            );
+            ).then(() => {
+                this.close();
+                EventBus.$emit('planet-update');
+            });
         }
     }
 });

@@ -1,7 +1,4 @@
-/* Surface viewport — planet canvas container.
- * Landscape: canvas fills entirely (cover), no scroll, no pan.
- * Portrait:  canvas fills, pan via pointer events. */
-
+/* Surface viewport — planet canvas container */
 .surface-viewport {
     position: absolute;
     top: 0;
@@ -10,15 +7,12 @@
     height: 100%;
     z-index: 0;
     overflow: hidden;
-    // No background color — canvas handles everything.
-    // Prevents "black bar" flash on orientation change.
-    background: transparent;
+    background: #0b0e14;
 }
 
 .surface {
     display: block;
-    width: 100%;
-    height: 100%;
+    /* Size set by JS via style.width/height for exact DPR control */
     touch-action: none;
     -webkit-touch-callout: none;
     -webkit-user-select: none;
