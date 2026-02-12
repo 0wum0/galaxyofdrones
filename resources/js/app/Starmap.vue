@@ -170,7 +170,8 @@ export default {
             // an empty frame.
             this._pendingRefresh = null;
 
-            this.map.on('zoomstart', () => this.geoJsonLayer.clearLayers());
+            // Do NOT clear layers on zoomstart — that causes a blank flash.
+            // refreshGeoJson() already does an atomic clear+add when data arrives.
             this.map.on('moveend', () => this.refreshGeoJson());
 
             this.zoomControl().addTo(this.map);

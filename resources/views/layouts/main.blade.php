@@ -32,17 +32,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 @endsection
 
-@php
-    // Use mix() for cache-busting via mix-manifest.json hashes.
-    // Falls back to asset() if mix-manifest.json is missing/corrupt
-    // so the page never 500s on a broken build.
-    $mixSafe = function ($path) {
-        try { return mix($path); } catch (\Exception $e) { return asset($path); }
-    };
-@endphp
-
 @prepend('stylesheets')
-    <link href="{{ $mixSafe('css/app.css') }}" rel="stylesheet">
+    <link href="{{ asset('css/app.css') }}" rel="stylesheet">
 @endprepend
 
 @prepend('javascripts')
@@ -56,7 +47,7 @@
             }
         };
     </script>
-    <script src="{{ $mixSafe('js/manifest.js') }}"></script>
-    <script src="{{ $mixSafe('js/vendor.js') }}"></script>
-    <script src="{{ $mixSafe('js/app.js') }}"></script>
+    <script src="{{ asset('js/manifest.js') }}"></script>
+    <script src="{{ asset('js/vendor.js') }}"></script>
+    <script src="{{ asset('js/app.js') }}"></script>
 @endprepend
