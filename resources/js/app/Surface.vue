@@ -85,19 +85,13 @@ function loadImg(url) {
 function computeTransform(cw, ch, mode) {
     var scale, tx, ty, pannable;
 
-    if (mode === 'landscape') {
-        // Contain: full planet visible, centered, no pan.
-        scale = Math.min(cw / DW, ch / DH);
-        tx = (cw - DW * scale) / 2;
-        ty = (ch - DH * scale) / 2;
-        pannable = false;
-    } else {
-        // Cover: planet fills viewport, pan to explore.
-        scale = Math.max(cw / DW, ch / DH);
-        tx = (cw - DW * scale) / 2;
-        ty = (ch - DH * scale) / 2;
-        pannable = true;
-    }
+    // Both modes use COVER scaling (planet always fills viewport,
+    // no starmap background visible). In landscape the planet is
+    // close to fitting anyway; any minimal crop is acceptable.
+    scale = Math.max(cw / DW, ch / DH);
+    tx = (cw - DW * scale) / 2;
+    ty = (ch - DH * scale) / 2;
+    pannable = (mode === 'portrait');
 
     // Pan clamp bounds: the world image must ALWAYS cover the entire
     // viewport.  World left edge = tx + panX, must be <= 0.
@@ -280,9 +274,11 @@ export default {
             var ox = (tf.tx + this._panX) * dpr;
             var oy = (tf.ty + this._panY) * dpr;
 
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            // Fill dark so no starmap bleeds through any transparent area.
+            ctx.fillStyle = '#0b0e14';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Background.
+            // Planet terrain background.
             ctx.drawImage(this._bgImg, ox, oy, DW * s, DH * s);
 
             // Grid slots.
@@ -302,15 +298,18 @@ export default {
             var dw = TW * s, dh = TH * s;
 
             var overlay = resolveOverlay(grid, this.planet.resource_id);
-            var hasContent = !!overlay;
 
-            // Base tile: full opacity if slot has content, subtle if empty.
-            if (!hasContent) ctx.globalAlpha = 0.35;
-            ctx.drawImage(this._atlasImg, S.plain.x, S.plain.y, S.plain.w, S.plain.h, dx, dy, dw, dh);
-            if (!hasContent) ctx.globalAlpha = 1.0;
-
-            // Building/resource/construction overlay (full opacity).
-            if (overlay) ctx.drawImage(this._atlasImg, overlay.x, overlay.y, overlay.w, overlay.h, dx, dy, dw, dh);
+            if (overlay) {
+                // Slot has content: draw base tile + overlay at full opacity.
+                ctx.drawImage(this._atlasImg, S.plain.x, S.plain.y, S.plain.w, S.plain.h, dx, dy, dw, dh);
+                ctx.drawImage(this._atlasImg, overlay.x, overlay.y, overlay.w, overlay.h, dx, dy, dw, dh);
+            } else {
+                // Empty slot: draw base tile very faint (just enough to
+                // show the isometric grid, but clearly "nothing built").
+                ctx.globalAlpha = 0.2;
+                ctx.drawImage(this._atlasImg, S.plain.x, S.plain.y, S.plain.w, S.plain.h, dx, dy, dw, dh);
+                ctx.globalAlpha = 1.0;
+            }
 
             // Level.
             if (grid.level) {
