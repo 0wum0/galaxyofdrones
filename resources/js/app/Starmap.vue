@@ -1,5 +1,9 @@
 <template>
-    <div class="starmap"></div>
+    <div class="starmap">
+        <div v-if="dataError" class="starmap-error-overlay">
+            {{ dataError }}
+        </div>
+    </div>
 </template>
 <script>
 import { EventBus } from '../event-bus';
@@ -52,6 +56,7 @@ export default {
             geoJsonLayer: undefined,
             map: undefined,
             zoom: 0,
+            dataError: '',
             planet: {
                 id: undefined,
                 x: 0,
@@ -93,7 +98,7 @@ export default {
             if (!this.map) {
                 this.initLeaflet();
             } else if (isSamePlanet) {
-                this.geoJsonLayer.refresh();
+                this.refreshGeoJson();
             } else {
                 this.map.setView(this.center(), this.maxZoom);
             }
@@ -155,8 +160,18 @@ export default {
             this.geoJsonLayer.ajaxParams.headers = axios.defaults.headers.common;
             this.geoJsonLayer.addTo(this.map);
 
+            // --- Flicker-free data refresh on pan/zoom ---
+            // The old approach used geoJsonLayer.refresh() which calls
+            // clearLayers() BEFORE the AJAX request fires, leaving the
+            // map blank for several frames until new data arrives.
+            //
+            // New approach: fetch new GeoJSON first, then clear + add
+            // in the same synchronous block so the browser never paints
+            // an empty frame.
+            this._pendingRefresh = null;
+
             this.map.on('zoomstart', () => this.geoJsonLayer.clearLayers());
-            this.map.on('moveend', () => this.geoJsonLayer.refresh(this.geoJson()));
+            this.map.on('moveend', () => this.refreshGeoJson());
 
             this.zoomControl().addTo(this.map);
             this.bookmarkControl().addTo(this.map);
@@ -183,6 +198,34 @@ export default {
             this.map.remove();
             this.map = undefined;
             window.__starmap = undefined;
+        },
+
+        /**
+         * Flicker-free GeoJSON refresh: fetch first, then swap layers
+         * atomically so the map never paints an empty frame.
+         */
+        refreshGeoJson() {
+            const url = this.geoJson();
+
+            if (this._pendingRefresh) {
+                this._pendingRefresh.cancelled = true;
+            }
+
+            const ticket = { cancelled: false };
+            this._pendingRefresh = ticket;
+
+            axios.get(url).then(response => {
+                if (ticket.cancelled) return;
+                this.dataError = '';
+                this.geoJsonLayer.clearLayers();
+                if (response.data && response.data.features && response.data.features.length) {
+                    this.geoJsonLayer.addData(response.data);
+                }
+            }).catch(err => {
+                // Keep existing markers visible on error (no clear).
+                console.error('[StarMap] GeoJSON fetch failed', err);
+                this.dataError = 'Map data could not be loaded.';
+            });
         },
 
         geoJson() {

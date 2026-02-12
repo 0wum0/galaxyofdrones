@@ -10,9 +10,14 @@
     z-index: 0;
 
     // Ensure Leaflet's own container always fills the starmap div.
+    // Override Leaflet's default gray background (#ddd) so the
+    // spiral-galaxy image from .container-app shows through the
+    // transparent .starmap layer — especially visible on zoom-out
+    // where no tiles exist.
     .leaflet-container {
         height: 100% !important;
         width: 100% !important;
+        background: transparent !important;
     }
 
     .leaflet-icon-object {
@@ -202,5 +207,20 @@
                 stroke: $warning;
             }
         }
+    }
+
+    // Error overlay when GeoJSON fetch fails.
+    &-error-overlay {
+        position: absolute;
+        bottom: 60px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.7);
+        color: $danger;
+        padding: 8px 16px;
+        border-radius: 4px;
+        font-size: 0.875rem;
+        z-index: 1000;
+        pointer-events: none;
     }
 }
