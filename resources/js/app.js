@@ -95,31 +95,65 @@ router.afterEach(to => {
     }
 });
 
-const app = new Vue({
-    router,
+/**
+ * Global Vue error handler — prevents silent white-screen crashes.
+ * Logs the error to console and shows a brief user-visible notice
+ * so the player knows something went wrong instead of seeing nothing.
+ */
+Vue.config.errorHandler = function (err, vm, info) {
+    console.error('[Vue error]', info, err);
+};
 
-    components: {
-        Bookmark,
-        Construction,
-        Demolish,
-        Mailbox,
-        Message,
-        Monitor,
-        Mothership,
-        Move,
-        Navigation,
-        Planet,
-        Player,
-        Profile,
-        Setting,
-        Sidebar,
-        Star,
-        Trophy,
-        Upgrade,
-        UpgradeAll
-    },
+/**
+ * Mount the Vue application.
+ * Wrapped in try/catch so that a component import failure or
+ * initialization error does not silently produce a blank page.
+ */
+try {
+    const app = new Vue({
+        router,
 
-    mixins: [
-        Routing
-    ]
-}).$mount('#app');
+        components: {
+            Bookmark,
+            Construction,
+            Demolish,
+            Mailbox,
+            Message,
+            Monitor,
+            Mothership,
+            Move,
+            Navigation,
+            Planet,
+            Player,
+            Profile,
+            Setting,
+            Sidebar,
+            Star,
+            Trophy,
+            Upgrade,
+            UpgradeAll
+        },
+
+        mixins: [
+            Routing
+        ]
+    }).$mount('#app');
+
+    // Signal successful mount to the fallback bar timer.
+    if (typeof window.__cancelFallbackBar === 'function') {
+        window.__cancelFallbackBar();
+    }
+} catch (mountError) {
+    console.error('[Vue mount failed]', mountError);
+    // Show a visible error so the user is not stuck on a blank screen.
+    var el = document.getElementById('app');
+    if (el) {
+        el.innerHTML = '<div style="color:#fff;background:#1a1a2e;padding:40px;text-align:center;font-family:sans-serif;">'
+            + '<h2>Loading Error</h2>'
+            + '<p>The application could not start. Please try reloading the page.</p>'
+            + '<p><a href="/login" style="color:#4fc3f7;">Back to Login</a> | '
+            + '<a href="/logout" style="color:#4fc3f7;">Logout</a></p>'
+            + '<p style="font-size:12px;color:#888;">' + mountError.message + '</p>'
+            + '</div>';
+    }
+}
