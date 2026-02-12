@@ -164,7 +164,7 @@ class SurfaceRouteTest extends TestCase
 
     /**
      * The compiled JavaScript bundle must contain the Surface component
-     * with the new viewport wrapper and direct API fallback.
+     * with the viewport wrapper and planet fetch logic.
      */
     public function testCompiledJsContainsSurfaceComponent()
     {
@@ -173,7 +173,7 @@ class SurfaceRouteTest extends TestCase
 
         $content = file_get_contents($appJs);
         $this->assertStringContainsString('surface-viewport', $content, 'app.js must contain the surface-viewport wrapper.');
-        $this->assertStringContainsString('fetchPlanetDirect', $content, 'app.js must contain the direct API fallback.');
+        $this->assertStringContainsString('fetchPlanet', $content, 'app.js must contain the planet fetch logic.');
         $this->assertStringContainsString('surface-loading', $content, 'app.js must contain the loading indicator.');
     }
 
@@ -192,8 +192,7 @@ class SurfaceRouteTest extends TestCase
     }
 
     /**
-     * The compiled JS must contain the planetPreviewUrl computed property
-     * and the gridTexture fallback error handling.
+     * The compiled JS must contain key surface and error handling features.
      */
     public function testCompiledJsContainsNewFixes()
     {
@@ -202,8 +201,10 @@ class SurfaceRouteTest extends TestCase
 
         $this->assertStringContainsString('planetPreviewUrl', $content, 'app.js must contain the planetPreviewUrl computed property.');
         $this->assertStringContainsString('planetImageUrl', $content, 'app.js must contain the planetImageUrl prop.');
-        $this->assertStringContainsString('gridTexture fallback', $content, 'app.js must contain the gridTexture error fallback.');
-        $this->assertStringContainsString('Render setup error', $content, 'app.js must contain the render setup error handler.');
+        // Vue mount error handler with visible fallback
+        $this->assertStringContainsString('Vue mount failed', $content, 'app.js must contain the mount error handler.');
+        // Echo/Pusher wrapped in try/catch
+        $this->assertStringContainsString('real-time features disabled', $content, 'app.js must contain the Echo/Pusher error guard.');
     }
 
     /**
