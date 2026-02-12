@@ -339,21 +339,21 @@ export default {
 
             var overlay = resolveOverlay(grid, this.planet.resource_id);
 
-            if (overlay) {
-                ctx.drawImage(this._atlasImg,
-                    S.plain.x, S.plain.y, S.plain.w, S.plain.h,
-                    dx, dy, dw, dh);
-                ctx.drawImage(this._atlasImg,
-                    overlay.x, overlay.y, overlay.w, overlay.h,
-                    dx, dy, dw, dh);
-            } else {
-                // Empty slot: faint placeholder.
-                ctx.globalAlpha = 0.2;
-                ctx.drawImage(this._atlasImg,
-                    S.plain.x, S.plain.y, S.plain.w, S.plain.h,
-                    dx, dy, dw, dh);
-                ctx.globalAlpha = 1.0;
-            }
+            // Only draw sprites for slots that have actual content.
+            // Empty slots: draw NOTHING (just invisible hit area).
+            // This prevents the diamond-grid overlay that makes the
+            // terrain look "cut up" / zerhäckselt.
+            if (!overlay) return;
+
+            // Base isometric tile (ground under the building/crystal).
+            ctx.drawImage(this._atlasImg,
+                S.plain.x, S.plain.y, S.plain.w, S.plain.h,
+                dx, dy, dw, dh);
+
+            // Building / resource / construction overlay.
+            ctx.drawImage(this._atlasImg,
+                overlay.x, overlay.y, overlay.w, overlay.h,
+                dx, dy, dw, dh);
 
             // Level number (only for built buildings with level > 0).
             if (grid.building_id && grid.level && grid.level > 0) {
