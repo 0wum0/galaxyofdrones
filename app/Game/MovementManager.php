@@ -14,6 +14,7 @@ use App\Models\Population;
 use App\Models\Unit;
 use App\Notifications\UnderAttack;
 use Carbon\Carbon;
+use Carbon\CarbonInterface;
 use Illuminate\Contracts\Auth\Factory as Auth;
 use Illuminate\Contracts\Bus\Dispatcher as Bus;
 use Illuminate\Contracts\Events\Dispatcher as Event;
@@ -660,7 +661,9 @@ class MovementManager
         $units = $units ?: $movement->units;
 
         if ($units->sum('pivot.quantity') > $units->sum('pivot.losses')) {
-            $travelTime = $movement->ended_at->diffInSeconds($movement->created_at);
+            $endedAt = self::normalizeToCarbon($movement->ended_at);
+            $createdAt = self::normalizeToCarbon($movement->created_at);
+            $travelTime = ($endedAt && $createdAt) ? $endedAt->diffInSeconds($createdAt) : 0;
 
             $returnMovement = Movement::create([
                 'start_id' => $movement->end_id,
@@ -733,5 +736,35 @@ class MovementManager
                 new UserUpdated($movement->end->user_id)
             );
         }
+    }
+
+    /**
+     * Normalize a value to a Carbon instance.
+     *
+     * Accepts Carbon, DateTimeInterface, date-string, or null.
+     * Returns null only when the value is empty or unparseable.
+     *
+     * @param  mixed  $value
+     * @return CarbonInterface|null
+     */
+    private static function normalizeToCarbon($value): ?CarbonInterface
+    {
+        if ($value instanceof CarbonInterface) {
+            return $value;
+        }
+
+        if ($value instanceof \DateTimeInterface) {
+            return Carbon::instance($value);
+        }
+
+        if (is_string($value) && $value !== '') {
+            try {
+                return Carbon::parse($value);
+            } catch (\Throwable $e) {
+                return null;
+            }
+        }
+
+        return null;
     }
 }

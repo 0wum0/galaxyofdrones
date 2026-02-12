@@ -23,9 +23,21 @@ trait Timeable
      */
     public function getRemainingAttribute()
     {
-        return max(0, Carbon::now()->diffInSeconds(
-            $this->getAttribute($this->endedAtKey()), false
-        ));
+        $endedAt = $this->getAttribute($this->endedAtKey());
+
+        if ($endedAt === null) {
+            return 0;
+        }
+
+        if (is_string($endedAt)) {
+            try {
+                $endedAt = Carbon::parse($endedAt);
+            } catch (\Throwable $e) {
+                return 0;
+            }
+        }
+
+        return max(0, Carbon::now()->diffInSeconds($endedAt, false));
     }
 
     /**

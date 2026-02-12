@@ -110,6 +110,13 @@ class Movement extends Model
     ];
 
     /**
+     * {@inheritdoc}
+     */
+    protected $casts = [
+        'ended_at' => 'datetime',
+    ];
+
+    /**
      * Get the resources.
      *
      * @return \Illuminate\Database\Eloquent\Relations\BelongsToMany
