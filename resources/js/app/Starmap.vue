@@ -133,18 +133,12 @@ export default {
                 coords[0], coords[1]
             ], this.maxZoom);
 
-            // ── GeoJSON layer (empty initially) ──────────────────────
-            // Previously we used L.geoJson.ajax() which fires its AJAX
-            // request in the constructor — BEFORE auth headers could be
-            // set (ajaxParams.headers was assigned one line later).
-            // This caused the initial data fetch to fail silently on
-            // authenticated endpoints, resulting in an empty starmap
-            // (tiles visible, but no planet/star markers).
-            //
-            // Fix: create a plain L.geoJson layer with no data, then
-            // load features explicitly via refreshGeoJson() which uses
-            // axios (with correct CSRF + auth headers).
-            this.geoJsonLayer = L.geoJson(null, {
+            // ── GeoJSON layer with initial AJAX fetch ────────────────
+            // leaflet-ajax's L.geoJson.ajax() fires its XHR in a
+            // Promise microtask — which runs AFTER the synchronous
+            // ajaxParams.headers assignment below.  Headers are
+            // therefore set in time and the request is authenticated.
+            this.geoJsonLayer = L.geoJson.ajax(this.geoJson(), {
                 coordsToLatLng,
 
                 pointToLayer: (geoJsonPoint, latLng) => {
@@ -168,11 +162,12 @@ export default {
                 }
             });
 
+            this.geoJsonLayer.ajaxParams.headers = axios.defaults.headers.common;
             this.geoJsonLayer.addTo(this.map);
 
-            // --- Flicker-free data refresh on pan/zoom ---
-            // Fetch new GeoJSON first, then clear + add in the same
-            // synchronous block so the browser never paints an empty frame.
+            // ── Flicker-free data refresh on pan/zoom ────────────────
+            // Fetch new GeoJSON first, then clear + add atomically so
+            // the browser never paints an empty frame.
             this._pendingRefresh = null;
 
             this.map.on('moveend', () => this.refreshGeoJson());
@@ -181,33 +176,39 @@ export default {
             this.bookmarkControl().addTo(this.map);
 
             // ── Event stopping (prevent browser zoom/scroll gestures) ──
-            // Capture touch and wheel events on the map container and
-            // call preventDefault() so they don't bubble to the browser's
-            // native zoom/scroll handling. Leaflet's own handlers still
-            // fire (they listen on the same element).
+            // Call preventDefault() so touch/wheel events don't bubble
+            // to the browser's native zoom/scroll. Leaflet's own
+            // handlers still fire (they listen on the same element).
             this._preventTouch = e => e.preventDefault();
             this._preventWheel = e => e.preventDefault();
             this.$el.addEventListener('touchmove', this._preventTouch, { passive: false });
             this.$el.addEventListener('wheel', this._preventWheel, { passive: false });
 
-            // Expose the map instance globally for debugging and external
-            // invalidateSize() calls (e.g. after tab/route transitions).
+            // Expose the map instance globally for debugging and
+            // external invalidateSize() calls (e.g. route transitions).
             window.__starmap = this.map;
 
-            // Force Leaflet to recalculate container size after all layers
-            // and controls have been added. Wrapped in nextTick + rAF to
-            // ensure the DOM has fully settled (critical on mobile).
+            // Force Leaflet to recalculate container size after all
+            // layers/controls are added. nextTick + rAF ensures the
+            // DOM has fully settled (critical on mobile).
             this.$nextTick(() => {
                 requestAnimationFrame(() => {
                     this.map.invalidateSize(true);
                 });
             });
 
-            // ── Initial data fetch ───────────────────────────────────
-            // Load planet/star markers immediately via axios (with
-            // correct headers). This replaces the broken L.geoJson.ajax
-            // auto-fetch that lacked authentication headers.
-            this.refreshGeoJson();
+            // ── Safety net: retry if initial AJAX produces no data ───
+            // If L.geoJson.ajax's initial load fails or returns empty,
+            // retry once via refreshGeoJson() after a short delay.
+            this.geoJsonLayer.on('data:loaded', () => {
+                if (!this.geoJsonLayer.getLayers().length && !this.dataError) {
+                    setTimeout(() => {
+                        if (this.map && !this.geoJsonLayer.getLayers().length) {
+                            this.refreshGeoJson();
+                        }
+                    }, 1500);
+                }
+            });
         },
 
         destoryLeaflet() {
@@ -232,7 +233,10 @@ export default {
 
         /**
          * Flicker-free GeoJSON refresh: fetch first, then swap layers
-         * atomically so the map never paints an empty frame.
+         * atomically so the browser never paints an empty frame.
+         *
+         * If the new response is empty but the layer already has data,
+         * keep the existing markers visible (don't clear to blank).
          */
         refreshGeoJson() {
             const url = this.geoJson();
@@ -247,14 +251,41 @@ export default {
             axios.get(url).then(response => {
                 if (ticket.cancelled) return;
                 this.dataError = '';
-                this.geoJsonLayer.clearLayers();
-                if (response.data && response.data.features && response.data.features.length) {
+
+                var features = response.data
+                    && response.data.features
+                    && response.data.features.length
+                    ? response.data.features
+                    : null;
+
+                if (features) {
+                    // Atomic swap: clear + add in the same synchronous
+                    // block so the browser never renders a blank frame.
+                    this.geoJsonLayer.clearLayers();
                     this.geoJsonLayer.addData(response.data);
+                } else if (!this.geoJsonLayer.getLayers().length) {
+                    // No existing markers AND response empty — zoom might
+                    // be too low (< 7) or viewport has no objects yet.
+                    // This is normal at low zoom levels; only show a hint
+                    // if we're at zoom >= 7 (where data is expected).
+                    if (this.map.getZoom() >= 7) {
+                        this.dataError = 'No objects in view — try zooming in or panning.';
+                    }
                 }
+                // else: response empty but existing markers present →
+                // keep showing current markers (e.g. boundary pan).
             }).catch(err => {
                 // Keep existing markers visible on error (no clear).
                 console.error('[StarMap] GeoJSON fetch failed', err);
-                this.dataError = 'Map data could not be loaded.';
+                this.dataError = 'Map data could not be loaded — retrying…';
+
+                // Retry once after 3 seconds.
+                setTimeout(() => {
+                    if (this.map && !this._destroyed) {
+                        this.dataError = '';
+                        this.refreshGeoJson();
+                    }
+                }, 3000);
             });
         },
 
