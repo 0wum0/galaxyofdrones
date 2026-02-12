@@ -62,6 +62,8 @@ export default Modal.extend({
 
     methods: {
         open(grid) {
+            // Clear stale data before fetching to prevent flash of old content.
+            this.data = { has_training: false, remaining: 0, building: {}, upgrade: {} };
             this.grid = grid;
             this.fetchData(true);
         },

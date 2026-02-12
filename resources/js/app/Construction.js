@@ -41,6 +41,9 @@ export default Modal.extend({
 
     methods: {
         open(grid) {
+            // Clear stale data before fetching to prevent flash of old content.
+            this.data = { remaining: 0, buildings: [] };
+            this.selected = { id: undefined };
             this.grid = grid;
             this.fetchData(true);
         },
@@ -54,6 +57,12 @@ export default Modal.extend({
                 this.url.replace('__grid__', this.grid.id)
             ).then(response => {
                 this.data = response.data;
+
+                // Defensive: deduplicate buildings by id (prevents UI duplication
+                // if the server returns the same building multiple times).
+                if (this.data.buildings && this.data.buildings.length) {
+                    this.data.buildings = _.uniqBy(this.data.buildings, 'id');
+                }
 
                 if (!showModal || !this.data.buildings.length) {
                     this.close();
