@@ -133,7 +133,18 @@ export default {
                 coords[0], coords[1]
             ], this.maxZoom);
 
-            this.geoJsonLayer = L.geoJson.ajax(this.geoJson(), {
+            // ── GeoJSON layer (empty initially) ──────────────────────
+            // Previously we used L.geoJson.ajax() which fires its AJAX
+            // request in the constructor — BEFORE auth headers could be
+            // set (ajaxParams.headers was assigned one line later).
+            // This caused the initial data fetch to fail silently on
+            // authenticated endpoints, resulting in an empty starmap
+            // (tiles visible, but no planet/star markers).
+            //
+            // Fix: create a plain L.geoJson layer with no data, then
+            // load features explicitly via refreshGeoJson() which uses
+            // axios (with correct CSRF + auth headers).
+            this.geoJsonLayer = L.geoJson(null, {
                 coordsToLatLng,
 
                 pointToLayer: (geoJsonPoint, latLng) => {
@@ -157,25 +168,27 @@ export default {
                 }
             });
 
-            this.geoJsonLayer.ajaxParams.headers = axios.defaults.headers.common;
             this.geoJsonLayer.addTo(this.map);
 
             // --- Flicker-free data refresh on pan/zoom ---
-            // The old approach used geoJsonLayer.refresh() which calls
-            // clearLayers() BEFORE the AJAX request fires, leaving the
-            // map blank for several frames until new data arrives.
-            //
-            // New approach: fetch new GeoJSON first, then clear + add
-            // in the same synchronous block so the browser never paints
-            // an empty frame.
+            // Fetch new GeoJSON first, then clear + add in the same
+            // synchronous block so the browser never paints an empty frame.
             this._pendingRefresh = null;
 
-            // Do NOT clear layers on zoomstart — that causes a blank flash.
-            // refreshGeoJson() already does an atomic clear+add when data arrives.
             this.map.on('moveend', () => this.refreshGeoJson());
 
             this.zoomControl().addTo(this.map);
             this.bookmarkControl().addTo(this.map);
+
+            // ── Event stopping (prevent browser zoom/scroll gestures) ──
+            // Capture touch and wheel events on the map container and
+            // call preventDefault() so they don't bubble to the browser's
+            // native zoom/scroll handling. Leaflet's own handlers still
+            // fire (they listen on the same element).
+            this._preventTouch = e => e.preventDefault();
+            this._preventWheel = e => e.preventDefault();
+            this.$el.addEventListener('touchmove', this._preventTouch, { passive: false });
+            this.$el.addEventListener('wheel', this._preventWheel, { passive: false });
 
             // Expose the map instance globally for debugging and external
             // invalidateSize() calls (e.g. after tab/route transitions).
@@ -189,11 +202,27 @@ export default {
                     this.map.invalidateSize(true);
                 });
             });
+
+            // ── Initial data fetch ───────────────────────────────────
+            // Load planet/star markers immediately via axios (with
+            // correct headers). This replaces the broken L.geoJson.ajax
+            // auto-fetch that lacked authentication headers.
+            this.refreshGeoJson();
         },
 
         destoryLeaflet() {
             if (!this.map) {
                 return;
+            }
+
+            // Remove event-stopping listeners added in initLeaflet().
+            if (this._preventTouch) {
+                this.$el.removeEventListener('touchmove', this._preventTouch, { passive: false });
+                this._preventTouch = null;
+            }
+            if (this._preventWheel) {
+                this.$el.removeEventListener('wheel', this._preventWheel, { passive: false });
+                this._preventWheel = null;
             }
 
             this.map.remove();
