@@ -162,6 +162,10 @@ export default {
         this._tf = null; // current transform
 
         EventBus.$on('planet-updated', this.onPlanetData);
+        // Refresh surface when construction/upgrade/demolish actions complete.
+        // The 'planet-update' event is emitted by Construction.js, Upgrade.js,
+        // and Demolish.js after successful store/destroy API calls.
+        EventBus.$on('planet-update', this.onPlanetUpdateRequest);
         EventBus.$emit('planet-data-request');
 
         this.$nextTick(() => {
@@ -183,6 +187,7 @@ export default {
     beforeDestroy() {
         this._destroyed = true;
         EventBus.$off('planet-updated', this.onPlanetData);
+        EventBus.$off('planet-update', this.onPlanetUpdateRequest);
         clearTimeout(this._retryTimer);
         if (this._timerInterval) clearInterval(this._timerInterval);
         if (this._syncInterval) clearInterval(this._syncInterval);
@@ -213,6 +218,11 @@ export default {
                 this._fetchInFlight = false;
                 if (!this._destroyed && !this._hasPlanetData) this.errorMessage = 'Planet data could not be loaded.';
             });
+        },
+
+        onPlanetUpdateRequest() {
+            // Debounce: don't refetch if one is already in flight.
+            if (!this._destroyed) this.fetchPlanet();
         },
 
         onPlanetData(planet) {

@@ -138,23 +138,21 @@ class PlanetTransformer extends Transformer
             ->map(function (Grid $grid) {
                 // Normalize: a grid has a building ONLY when both building_id
                 // AND level > 0 are set. Legacy data or buggy states may leave
-                // building_id set with level=0/null (ghost buildings).
+                // building_id set with level=0/null — these are "ghost buildings"
+                // that should not render on the planet surface.
+                //
+                // Exception: during active construction, building_id may briefly
+                // be set with level=0 (ConstructionManager::finish sets both
+                // atomically, so this shouldn't happen, but we guard against it).
                 $buildingId = $grid->building_id;
                 $level = $grid->level;
 
-                if (! $buildingId || ! $level || $level <= 0) {
-                    // If one is set but not the other, treat as empty.
-                    // Exception: keep building_id when there is an active
-                    // construction (the building is being placed for the
-                    // first time — building_id is set by ConstructionManager
-                    // but level is 0 until finish() runs).
-                    if (! $grid->construction) {
-                        $buildingId = $buildingId ?: null;
-                        $level = ($buildingId && $level && $level > 0) ? $level : null;
-                        if (! $level) {
-                            $buildingId = null;
-                        }
-                    }
+                if ($buildingId && (! $level || $level <= 0) && ! $grid->construction) {
+                    $buildingId = null;
+                    $level = null;
+                }
+                if (! $buildingId) {
+                    $level = null;
                 }
 
                 // Only include construction/upgrade/training with remaining > 0.

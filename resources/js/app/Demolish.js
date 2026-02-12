@@ -23,7 +23,12 @@ export default Modal.extend({
         demolish() {
             axios.delete(
                 this.url.replace('__grid__', this.grid.id)
-            ).then(this.close);
+            ).then(() => {
+                this.close();
+                // Trigger planet data refresh so Surface redraws without
+                // the demolished building and Sidebar updates stats.
+                EventBus.$emit('planet-update');
+            });
         }
     }
 });
