@@ -8,6 +8,9 @@
     height: 100%;
     width: 100%;
     z-index: 0;
+    // Prevent browser-level touch gestures (pinch-zoom, pan) from
+    // leaking through to the page; Leaflet handles its own events.
+    touch-action: none;
 
     // Ensure Leaflet's own container always fills the starmap div.
     // Override Leaflet's default gray background (#ddd) so the
