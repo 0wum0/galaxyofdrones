@@ -253,4 +253,82 @@ class SurfaceRouteTest extends TestCase
             $this->assertGreaterThan(1000, $size, "planet-{$i}-bg.png must be a valid image (>1KB).");
         }
     }
+
+    // ── StarMap regression tests ─────────────────────────────
+
+    /**
+     * The starmap background image must exist (spiral galaxy).
+     */
+    public function testStarmapBackgroundImageExists()
+    {
+        $path = public_path('images/starmap-bg.png');
+        $this->assertFileExists($path, 'starmap-bg.png must exist in public/images/.');
+        $this->assertGreaterThan(10000, filesize($path), 'starmap-bg.png must be a valid image (>10KB).');
+    }
+
+    /**
+     * The compiled CSS must make .leaflet-container transparent so the
+     * spiral galaxy background is visible through Leaflet tiles.
+     */
+    public function testCompiledCssHasTransparentLeafletContainer()
+    {
+        $content = file_get_contents(public_path('css/app.css'));
+        $this->assertStringContainsString(
+            'background:transparent!important',
+            $content,
+            'app.css must override .leaflet-container background to transparent.'
+        );
+    }
+
+    /**
+     * The compiled JS must contain the flicker-free refreshGeoJson method.
+     */
+    public function testCompiledJsContainsFlickerFreeRefresh()
+    {
+        $content = file_get_contents(public_path('js/app.js'));
+        $this->assertStringContainsString(
+            'refreshGeoJson',
+            $content,
+            'app.js must contain the flicker-free refreshGeoJson method.'
+        );
+        $this->assertStringContainsString(
+            '_pendingRefresh',
+            $content,
+            'app.js must contain the pending-request cancellation logic.'
+        );
+    }
+
+    /**
+     * The starmap GeoJSON API must return a valid FeatureCollection.
+     */
+    public function testStarmapGeoJsonApiReturnsFeatureCollection()
+    {
+        $user = $this->createStartedUser();
+        $this->actingAs($user);
+
+        // zoom=9, use bounds that cover the user's planet
+        $planet = $user->current;
+        $padding = 5000;
+        $bounds = implode(',', [
+            $planet->x - $padding,
+            $planet->y - $padding,
+            $planet->x + $padding,
+            $planet->y + $padding,
+        ]);
+
+        $this->getJson("/api/starmap/geo-json/9/{$bounds}")
+            ->assertStatus(200)
+            ->assertJsonStructure(['type', 'features']);
+    }
+
+    /**
+     * The sprite-item-sm.png (planet/star textures for Leaflet markers)
+     * must exist for the starmap CSS sprite background to work.
+     */
+    public function testSpriteItemSmImageExists()
+    {
+        $path = public_path('images/sprite-item-sm.png');
+        $this->assertFileExists($path, 'sprite-item-sm.png must exist for starmap planet markers.');
+        $this->assertGreaterThan(1000, filesize($path), 'sprite-item-sm.png must be a valid image.');
+    }
 }
