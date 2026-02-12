@@ -51,15 +51,34 @@ function pointInTile(px, py) {
     return Math.abs(cx) / 160 + Math.abs(cy) / 80 <= 1;
 }
 
+/**
+ * Resolve the overlay sprite for a grid slot.
+ * Returns null for empty slots → only the faint base tile is drawn.
+ *
+ * A building sprite is returned ONLY when the slot has both:
+ *   - building_id (which building type)
+ *   - level > 0 (actually constructed, not just pre-placed)
+ * This prevents the Generator's pre-placed but unbuilt slots
+ * from showing finished building sprites.
+ */
 function resolveOverlay(grid, resourceId) {
     try {
-        if (grid.construction) return S.constructions[grid.construction.building_id] || null;
-        if (grid.building_id) {
+        // Under construction → ghost/blueprint sprite.
+        if (grid.construction) {
+            return S.constructions[grid.construction.building_id] || null;
+        }
+
+        // Built building: must have building_id AND level > 0.
+        if (grid.building_id && grid.level && grid.level > 0) {
             var b = S.buildings[grid.building_id];
             if (!b) return null;
             return b.w ? b : (b[resourceId] || b[1] || null);
         }
-        if (grid.type === 1) return S.resources[resourceId] || null;
+
+        // Resource slot (type 1) without building → crystal.
+        if (grid.type === 1) {
+            return S.resources[resourceId] || null;
+        }
     } catch (e) {}
     return null;
 }
@@ -270,82 +289,111 @@ export default {
             var ctx = canvas.getContext('2d');
             var tf = this._tf;
             var dpr = tf.dpr;
-            var s = tf.scale * dpr;
-            var ox = (tf.tx + this._panX) * dpr;
-            var oy = (tf.ty + this._panY) * dpr;
 
-            // Fill dark so no starmap bleeds through any transparent area.
+            // ── DPR-correct rendering ──────────────────────────
+            // Reset transform, then scale by DPR once. All subsequent
+            // draw calls use CSS-logical coordinates (not device pixels).
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+            // Crisp sprite rendering (no bilinear blur).
+            ctx.imageSmoothingEnabled = false;
+            if (ctx.webkitImageSmoothingEnabled !== undefined)
+                ctx.webkitImageSmoothingEnabled = false;
+
+            var cw = tf.cw, ch = tf.ch;
+            var s = tf.scale;
+            var ox = tf.tx + this._panX;
+            var oy = tf.ty + this._panY;
+
+            // 1) Fill dark (no starmap bleed).
             ctx.fillStyle = '#0b0e14';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillRect(0, 0, cw, ch);
 
-            // Planet terrain background.
-            ctx.drawImage(this._bgImg, ox, oy, DW * s, DH * s);
+            // 2) Background — rounded to integers for pixel-perfect.
+            ctx.drawImage(this._bgImg,
+                Math.round(ox), Math.round(oy),
+                Math.round(DW * s), Math.round(DH * s));
 
-            // Grid slots.
+            // 3) Grid slots.
             var grids = this.planet.grids;
             if (!grids || !grids.length || !this._atlasImg) return;
             for (var i = 0; i < grids.length; i++) {
                 this.drawSlot(ctx, grids[i], s, ox, oy);
             }
 
-            if (location.search.indexOf('debug=1') !== -1) this.drawDebug(ctx, grids, s, ox, oy);
+            if (location.search.indexOf('debug=1') !== -1)
+                this.drawDebug(ctx, grids, s, ox, oy);
+
+            // Reset transform for any non-draw operations.
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
         },
 
         drawSlot(ctx, grid, s, ox, oy) {
             var rx = grid.x - this._gmx, ry = grid.y - this._gmy;
-            var dx = isoX(rx, ry) * s + ox;
-            var dy = isoY(rx, ry) * s + oy;
-            var dw = TW * s, dh = TH * s;
+
+            // Integer positions — prevents anti-alias blur / cut-off.
+            var dx = Math.round(isoX(rx, ry) * s + ox);
+            var dy = Math.round(isoY(rx, ry) * s + oy);
+            var dw = Math.round(TW * s);
+            var dh = Math.round(TH * s);
 
             var overlay = resolveOverlay(grid, this.planet.resource_id);
 
             if (overlay) {
-                // Slot has content: draw base tile + overlay at full opacity.
-                ctx.drawImage(this._atlasImg, S.plain.x, S.plain.y, S.plain.w, S.plain.h, dx, dy, dw, dh);
-                ctx.drawImage(this._atlasImg, overlay.x, overlay.y, overlay.w, overlay.h, dx, dy, dw, dh);
+                ctx.drawImage(this._atlasImg,
+                    S.plain.x, S.plain.y, S.plain.w, S.plain.h,
+                    dx, dy, dw, dh);
+                ctx.drawImage(this._atlasImg,
+                    overlay.x, overlay.y, overlay.w, overlay.h,
+                    dx, dy, dw, dh);
             } else {
-                // Empty slot: draw base tile very faint (just enough to
-                // show the isometric grid, but clearly "nothing built").
+                // Empty slot: faint placeholder.
                 ctx.globalAlpha = 0.2;
-                ctx.drawImage(this._atlasImg, S.plain.x, S.plain.y, S.plain.w, S.plain.h, dx, dy, dw, dh);
+                ctx.drawImage(this._atlasImg,
+                    S.plain.x, S.plain.y, S.plain.w, S.plain.h,
+                    dx, dy, dw, dh);
                 ctx.globalAlpha = 1.0;
             }
 
-            // Level.
-            if (grid.level) {
-                var fs = Math.max(10, Math.round(14 * s / this._tf.dpr));
+            // Level number (only for built buildings with level > 0).
+            if (grid.building_id && grid.level && grid.level > 0) {
+                var fs = Math.max(10, Math.round(14 * s));
                 ctx.font = fs + 'px "Exo 2",sans-serif';
                 ctx.textAlign = 'center';
                 ctx.strokeStyle = '#0e141c'; ctx.lineWidth = 3; ctx.fillStyle = '#fff';
-                ctx.strokeText(grid.level, dx + dw/2, dy + dh - 8*s/this._tf.dpr);
-                ctx.fillText(grid.level, dx + dw/2, dy + dh - 8*s/this._tf.dpr);
+                var tx = dx + dw / 2;
+                var ty = dy + dh - Math.round(8 * s);
+                ctx.strokeText(grid.level, tx, ty);
+                ctx.fillText(grid.level, tx, ty);
             }
 
-            // Timer.
+            // Construction/upgrade/training timer.
             var rem = null, tc = '#fff';
             if (grid.construction) rem = grid.construction.remaining;
             else if (grid.upgrade) rem = grid.upgrade.remaining;
             else if (grid.training) { rem = grid.training.remaining; tc = '#ebb237'; }
             if (rem && rem > 0) {
-                var tfs = Math.max(10, Math.round(14 * s / this._tf.dpr));
+                var tfs = Math.max(10, Math.round(14 * s));
                 ctx.font = tfs + 'px "Exo 2",sans-serif';
                 ctx.textAlign = 'center';
                 ctx.strokeStyle = '#0e141c'; ctx.lineWidth = 3; ctx.fillStyle = tc;
                 var label = Filters.timer(rem);
-                ctx.strokeText(label, dx + dw/2, dy + dh/2 + tfs/3);
-                ctx.fillText(label, dx + dw/2, dy + dh/2 + tfs/3);
+                ctx.strokeText(label, dx + dw / 2, dy + dh / 2 + Math.round(tfs / 3));
+                ctx.fillText(label, dx + dw / 2, dy + dh / 2 + Math.round(tfs / 3));
             }
         },
 
         drawDebug(ctx, grids, s, ox, oy) {
             ctx.lineWidth = 1; ctx.font = '10px monospace'; ctx.textAlign = 'center';
             for (var i = 0; i < grids.length; i++) {
-                var g = grids[i], rx = g.x-this._gmx, ry = g.y-this._gmy;
-                var dx = isoX(rx,ry)*s+ox, dy = isoY(rx,ry)*s+oy, dw = TW*s, dh = TH*s;
+                var g = grids[i], rx = g.x - this._gmx, ry = g.y - this._gmy;
+                var dx = Math.round(isoX(rx, ry) * s + ox);
+                var dy = Math.round(isoY(rx, ry) * s + oy);
+                var dw = Math.round(TW * s), dh = Math.round(TH * s);
                 ctx.strokeStyle = g.building_id ? 'lime' : 'rgba(255,0,0,0.4)';
                 ctx.strokeRect(dx, dy, dw, dh);
                 ctx.fillStyle = g.building_id ? 'lime' : 'red';
-                ctx.fillText(rx+','+ry+' b'+(g.building_id||'-'), dx+dw/2, dy+dh/2);
+                ctx.fillText(rx + ',' + ry + ' t' + g.type + ' b' + (g.building_id || '-') + ' L' + (g.level || 0), dx + dw / 2, dy + dh / 2);
             }
         },
 
