@@ -32,13 +32,18 @@ class Upgrade implements ShouldQueue
     /**
      * Handle the job.
      *
+     * With QUEUE_CONNECTION=sync the delay() is ignored and the job runs
+     * immediately. Guard against premature completion by checking isExpired().
+     * The on-read finalizer (PlanetController::finalizeExpired) handles
+     * completion when the player next loads the planet.
+     *
      * @throws \Exception|\Throwable
      */
     public function handle(DatabaseManager $database, UpgradeManager $manager)
     {
         $upgrade = UpgradeModel::find($this->upgradeId);
 
-        if ($upgrade) {
+        if ($upgrade && $upgrade->isExpired()) {
             $database->transaction(function () use ($upgrade, $manager) {
                 $manager->finish($upgrade);
             });

@@ -32,13 +32,19 @@ class Construction implements ShouldQueue
     /**
      * Handle the job.
      *
+     * With QUEUE_CONNECTION=sync the delay() is ignored and the job runs
+     * immediately after dispatch. We must guard against premature completion
+     * by checking isExpired() — if the construction time hasn't elapsed yet,
+     * the on-read finalizer (PlanetController::finalizeExpired) will handle
+     * it when the player next loads the planet.
+     *
      * @throws \Exception|\Throwable
      */
     public function handle(DatabaseManager $database, ConstructionManager $manager)
     {
         $construction = ConstructionModel::find($this->constructionId);
 
-        if ($construction) {
+        if ($construction && $construction->isExpired()) {
             $database->transaction(function () use ($manager, $construction) {
                 $manager->finish($construction);
             });
