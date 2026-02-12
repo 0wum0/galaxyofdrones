@@ -36,13 +36,62 @@ class PlanetController extends Controller
     {
         $planet = auth()->user()->current;
 
-        // Safety net: ensure grid slots exist for the planet.
-        // Grids are normally created by the starmap Generator, but
-        // this guards against data-integrity gaps (e.g. failed
-        // generation, manual DB edits, or test fixtures).
         $planet->ensureGridsExist();
 
+        // Finalize expired constructions/upgrades/trainings on-read.
+        // This makes build timers work correctly without a queue worker
+        // (QUEUE_CONNECTION=sync dispatches jobs instantly, which means
+        // the delayed ConstructionJob never actually delays).
+        $this->finalizeExpired($planet);
+
         return $transformer->transform($planet);
+    }
+
+    /**
+     * Finalize any constructions/upgrades/trainings whose ended_at
+     * has passed.  This is the "on-read" pattern that replaces the
+     * need for a background queue worker.
+     */
+    private function finalizeExpired(Planet $planet)
+    {
+        $now = \Carbon\Carbon::now();
+
+        // Constructions
+        foreach ($planet->grids as $grid) {
+            if ($grid->construction && $grid->construction->ended_at <= $now) {
+                try {
+                    DB::transaction(function () use ($grid) {
+                        app(\App\Game\ConstructionManager::class)->finish($grid->construction);
+                    });
+                } catch (\Throwable $e) {
+                    // Log but don't break the response
+                    \Log::warning('Construction finalize failed: ' . $e->getMessage());
+                }
+            }
+
+            if ($grid->upgrade && $grid->upgrade->ended_at <= $now) {
+                try {
+                    DB::transaction(function () use ($grid) {
+                        app(\App\Game\UpgradeManager::class)->finish($grid->upgrade);
+                    });
+                } catch (\Throwable $e) {
+                    \Log::warning('Upgrade finalize failed: ' . $e->getMessage());
+                }
+            }
+
+            if ($grid->training && $grid->training->ended_at <= $now) {
+                try {
+                    DB::transaction(function () use ($grid) {
+                        app(\App\Game\TrainingManager::class)->finish($grid->training);
+                    });
+                } catch (\Throwable $e) {
+                    \Log::warning('Training finalize failed: ' . $e->getMessage());
+                }
+            }
+        }
+
+        // Reload relationships so the transformer returns fresh data.
+        $planet->load('grids.construction', 'grids.upgrade', 'grids.training');
     }
 
     /**

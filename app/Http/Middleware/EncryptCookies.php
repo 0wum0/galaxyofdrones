@@ -51,6 +51,10 @@ class EncryptCookies extends Middleware
      * When the Encrypter is not available (no APP_KEY), passes the request
      * through without cookie encryption. This allows CheckInstalled to
      * redirect to the installer and prevents 500 errors on fresh deploys.
+     *
+     * If a cookie fails to decrypt (e.g. APP_KEY changed, corrupted cookie),
+     * we clear it and continue instead of silently passing the raw encrypted
+     * value through — that caused session loss and Firefox whitescreen.
      */
     public function handle($request, Closure $next)
     {
@@ -60,8 +64,18 @@ class EncryptCookies extends Middleware
 
         try {
             return parent::handle($request, $next);
+        } catch (\Illuminate\Contracts\Encryption\DecryptException $e) {
+            // Cookie corruption (e.g. APP_KEY rotation). Clear the bad
+            // cookies so the user gets a fresh session instead of a
+            // broken one that causes whitescreen/auth loops.
+            $response = $next($request);
+            foreach ($request->cookies->keys() as $name) {
+                $response->headers->setCookie(
+                    cookie()->forget($name)
+                );
+            }
+            return $response;
         } catch (\Throwable $e) {
-            // Catch any unexpected encryption errors and degrade gracefully
             return $next($request);
         }
     }
