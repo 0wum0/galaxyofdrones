@@ -29,7 +29,7 @@
         <meta property="og:image:height" content="630">
         <meta property="og:description" content="{{ $description ?: $title }}">
     @show
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 @endsection
 
 @prepend('stylesheets')

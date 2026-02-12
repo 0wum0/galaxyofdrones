@@ -11,11 +11,13 @@
     display: none !important;
 }
 
-html {
+html, body {
+    width: 100%;
     height: var(--app-vh, 100vh);
-    // Prevent overscroll on iOS that reveals the body background below
-    // the app container – this is the "dead space" fix for mobile.
     overflow: hidden;
+    overscroll-behavior: none;    // Verhindert Gummiband-Effekt (iOS/Android)
+    touch-action: none;           // Verhindert Browser-Gestures (Pinch-Zoom, etc.)
+    position: fixed;              // Fixiert den Viewport hart gegen Verschieben
 
     @supports (height: 100dvh) {
         height: 100dvh;
@@ -23,18 +25,10 @@ html {
 }
 
 body {
-    height: var(--app-vh, 100vh);
     min-height: 320px;
     min-width: 320px;
-    // Prevent any scrolling beyond the app viewport on mobile.
-    overflow: hidden;
-    overscroll-behavior: none;
     // iOS safe-area bottom padding (home indicator / navigation bar).
     padding-bottom: env(safe-area-inset-bottom, 0px);
-
-    @supports (height: 100dvh) {
-        height: 100dvh;
-    }
 }
 
 .highlight-success {
