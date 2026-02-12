@@ -43,8 +43,26 @@ var S = {
 
 var TW = 320, TH = 200, DW = 1920, DH = 1080;
 
-function isoX(rx, ry) { return (rx - ry + 4) * 162 + (DW - 1608) / 2; }
-function isoY(rx, ry) { return (rx + ry) * 81 + (DH - 888) / 2; }
+/**
+ * Isometric coordinate mapping.
+ *
+ * The diamond hit-area within each 320×200 tile has half-widths of
+ * 160 (horizontal) and 80 (vertical).  Using these as the step sizes
+ * ensures tiles share edges perfectly — no sub-pixel gaps (seams).
+ *
+ * Previous values (162, 81) introduced 2px/1px gaps that caused the
+ * "zerstückelt" (chopped-up) appearance on the planet surface.
+ *
+ * Centering for a 5×5 grid:
+ *   X: (rx-ry) ranges [-4,4] → +4 maps to [0,8]; 8*160+320=1600; margin=(1920-1600)/2=160
+ *   Y: (rx+ry) ranges [0,8];                      8*80+200=840;   margin=(1080-840)/2=120
+ */
+var STEP_X = 160, STEP_Y = 80;
+var MARGIN_X = (DW - (8 * STEP_X + TW)) / 2;   // 160
+var MARGIN_Y = (DH - (8 * STEP_Y + TH)) / 2;   // 120
+
+function isoX(rx, ry) { return (rx - ry + 4) * STEP_X + MARGIN_X; }
+function isoY(rx, ry) { return (rx + ry) * STEP_Y + MARGIN_Y; }
 
 function pointInTile(px, py) {
     var cx = px - 160, cy = py - 120;
@@ -324,11 +342,23 @@ export default {
                 Math.round(ox), Math.round(oy),
                 Math.round(DW * s), Math.round(DH * s));
 
-            // 3) Grid slots.
+            // 3) Grid slots — sorted by depth (rx+ry ascending) for correct
+            //    isometric occlusion (painter's algorithm: back to front).
             var grids = this.planet.grids;
             if (!grids || !grids.length || !this._atlasImg) return;
-            for (var i = 0; i < grids.length; i++) {
-                this.drawSlot(ctx, grids[i], s, ox, oy);
+
+            if (!this._sortedGrids || this._sortedGrids.length !== grids.length) {
+                this._sortedGrids = grids.slice();
+            } else {
+                for (var si = 0; si < grids.length; si++) this._sortedGrids[si] = grids[si];
+            }
+            var gmx = this._gmx, gmy = this._gmy;
+            this._sortedGrids.sort(function (a, b) {
+                return ((a.x - gmx) + (a.y - gmy)) - ((b.x - gmx) + (b.y - gmy));
+            });
+
+            for (var i = 0; i < this._sortedGrids.length; i++) {
+                this.drawSlot(ctx, this._sortedGrids[i], s, ox, oy);
             }
 
             if (location.search.indexOf('debug=1') !== -1)
