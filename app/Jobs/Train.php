@@ -32,13 +32,18 @@ class Train implements ShouldQueue
     /**
      * Handle the job.
      *
+     * With QUEUE_CONNECTION=sync the delay() is ignored and the job runs
+     * immediately. Guard against premature completion by checking isExpired().
+     * The on-read finalizer (PlanetController::finalizeExpired) handles
+     * completion when the player next loads the planet.
+     *
      * @throws \Exception|\Throwable
      */
     public function handle(DatabaseManager $database, TrainingManager $manager)
     {
         $training = TrainingModel::find($this->trainingId);
 
-        if ($training) {
+        if ($training && $training->isExpired()) {
             $database->transaction(function () use ($training, $manager) {
                 $manager->finish($training);
             });

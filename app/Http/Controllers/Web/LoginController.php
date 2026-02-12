@@ -42,6 +42,7 @@ class LoginController extends Controller
         $this->guard()->logout();
 
         $request->session()->invalidate();
+        $request->session()->regenerateToken();
 
         flash()->success(
             trans('messages.success.logout')

@@ -32,13 +32,16 @@ class Move implements ShouldQueue
     /**
      * Handle the job.
      *
+     * With QUEUE_CONNECTION=sync the delay() is ignored and the job runs
+     * immediately. Guard against premature completion by checking isExpired().
+     *
      * @throws \Exception|\Throwable
      */
     public function handle(DatabaseManager $database, MovementManager $manager)
     {
         $movement = MovementModel::find($this->movementId);
 
-        if ($movement) {
+        if ($movement && $movement->isExpired()) {
             $database->transaction(function () use ($movement, $manager) {
                 $manager->finish($movement);
             });

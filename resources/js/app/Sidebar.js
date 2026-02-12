@@ -64,6 +64,16 @@ export default {
                 EventBus._lastPlanetData = this.data;
             }
         });
+
+        // When Construction, Upgrade, or Demolish complete an action they
+        // emit 'planet-update'. The Sidebar must refetch so its stats
+        // (energy, resources, capacity) and the Surface (via planet-updated)
+        // reflect the change immediately. Guard against re-entry since
+        // fetchData() itself emits 'planet-update'.
+        this._sidebarFetching = false;
+        EventBus.$on('planet-update', () => {
+            if (!this._sidebarFetching) this.fetchData();
+        });
     },
 
     mounted() {
@@ -122,11 +132,17 @@ export default {
 
     methods: {
         fetchData() {
+            // Guard against re-entry: fetchData emits 'planet-update'
+            // and we also listen for 'planet-update' from other components.
+            if (this._sidebarFetching) return;
+            this._sidebarFetching = true;
+
             EventBus.$emit('planet-update');
 
             this.unsubscribe();
 
             axios.get(this.planetUrl).then(response => {
+                this._sidebarFetching = false;
                 this.data = response.data;
                 this.selected = this.data.id;
 
@@ -140,6 +156,8 @@ export default {
                 // *after* this emit (e.g. Surface after route transition)
                 // can pick it up immediately.
                 EventBus._lastPlanetData = this.data;
+            }).catch(() => {
+                this._sidebarFetching = false;
             });
         },
 

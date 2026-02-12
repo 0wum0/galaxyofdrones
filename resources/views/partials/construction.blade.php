@@ -14,14 +14,14 @@
                 </div>
                 <div class="modal-body">
                     <div class="tab-content" v-if="data.buildings.length">
-                        <div v-for="building in data.buildings" class="tab-pane" :class="{active: isSelected(building)}">
+                        <div v-for="building in data.buildings" :key="building.id" class="tab-pane" :class="{active: isSelected(building)}">
                             @include('partials.building')
                         </div>
                     </div>
                 </div>
                 <div class="modal-body separator">
                     <ul class="nav nav-pills">
-                        <li class="nav-item" v-for="building in data.buildings">
+                        <li class="nav-item" v-for="building in data.buildings" :key="'pill-' + building.id">
                             <a class="nav-link"
                                :class="{active: isSelected(building)}"
                                href="#"

@@ -53,8 +53,10 @@ class EncryptCookies extends Middleware
      * redirect to the installer and prevents 500 errors on fresh deploys.
      *
      * If a cookie fails to decrypt (e.g. APP_KEY changed, corrupted cookie),
-     * we clear it and continue instead of silently passing the raw encrypted
-     * value through — that caused session loss and Firefox whitescreen.
+     * we clear the bad cookies from BOTH the request (so downstream middleware
+     * like StartSession and VerifyCsrfToken start fresh) AND the response
+     * (so the browser discards them). This prevents the 419/whitescreen loop
+     * that occurred when raw encrypted values leaked into the session layer.
      */
     public function handle($request, Closure $next)
     {
@@ -65,17 +67,31 @@ class EncryptCookies extends Middleware
         try {
             return parent::handle($request, $next);
         } catch (\Illuminate\Contracts\Encryption\DecryptException $e) {
-            // Cookie corruption (e.g. APP_KEY rotation). Clear the bad
-            // cookies so the user gets a fresh session instead of a
-            // broken one that causes whitescreen/auth loops.
+            // Cookie corruption (e.g. APP_KEY rotation).
+            // 1) Clear ALL cookies from the request so StartSession creates
+            //    a brand-new session and VerifyCsrfToken sees a clean slate.
+            $cookieNames = $request->cookies->keys();
+            foreach ($cookieNames as $name) {
+                $request->cookies->remove($name);
+            }
+
+            // 2) Continue the pipeline with the cleaned request.
             $response = $next($request);
-            foreach ($request->cookies->keys() as $name) {
+
+            // 3) Tell the browser to forget the corrupted cookies.
+            foreach ($cookieNames as $name) {
                 $response->headers->setCookie(
                     cookie()->forget($name)
                 );
             }
+
             return $response;
         } catch (\Throwable $e) {
+            // Any other encryption-related error: clear cookies and continue.
+            $cookieNames = $request->cookies->keys();
+            foreach ($cookieNames as $name) {
+                $request->cookies->remove($name);
+            }
             return $next($request);
         }
     }

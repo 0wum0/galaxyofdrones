@@ -136,31 +136,62 @@ class PlanetTransformer extends Transformer
     {
         return $planet->findGrids()
             ->map(function (Grid $grid) {
+                // Normalize: a grid has a building ONLY when both building_id
+                // AND level > 0 are set. Legacy data or buggy states may leave
+                // building_id set with level=0/null — these are "ghost buildings"
+                // that should not render on the planet surface.
+                //
+                // Exception: during active construction, building_id may briefly
+                // be set with level=0 (ConstructionManager::finish sets both
+                // atomically, so this shouldn't happen, but we guard against it).
+                $buildingId = $grid->building_id;
+                $level = $grid->level;
+
+                if ($buildingId && (! $level || $level <= 0) && ! $grid->construction) {
+                    $buildingId = null;
+                    $level = null;
+                }
+                if (! $buildingId) {
+                    $level = null;
+                }
+
+                // Only include construction/upgrade/training with remaining > 0.
+                // Items with remaining=0 should have been finalized already;
+                // including them would show a stale ghost overlay.
+                $construction = null;
+                if ($grid->construction && $grid->construction->remaining > 0) {
+                    $construction = [
+                        'building_id' => $grid->construction->building_id,
+                        'level' => $grid->construction->level,
+                        'remaining' => $grid->construction->remaining,
+                    ];
+                }
+
+                $upgrade = null;
+                if ($grid->upgrade && $grid->upgrade->remaining > 0) {
+                    $upgrade = [
+                        'level' => $grid->upgrade->level,
+                        'remaining' => $grid->upgrade->remaining,
+                    ];
+                }
+
+                $training = null;
+                if ($grid->training && $grid->training->remaining > 0) {
+                    $training = [
+                        'remaining' => $grid->training->remaining,
+                    ];
+                }
+
                 return [
                     'id' => $grid->id,
-                    'building_id' => $grid->building_id,
+                    'building_id' => $buildingId,
                     'x' => $grid->x,
                     'y' => $grid->y,
-                    'level' => $grid->level,
+                    'level' => $level,
                     'type' => $grid->type,
-                    'construction' => $grid->construction
-                        ? [
-                            'building_id' => $grid->construction->building_id,
-                            'level' => $grid->construction->level,
-                            'remaining' => $grid->construction->remaining,
-                        ]
-                        : null,
-                    'upgrade' => $grid->upgrade
-                        ? [
-                            'level' => $grid->upgrade->level,
-                            'remaining' => $grid->upgrade->remaining,
-                        ]
-                        : null,
-                    'training' => $grid->training
-                        ? [
-                            'remaining' => $grid->training->remaining,
-                        ]
-                        : null,
+                    'construction' => $construction,
+                    'upgrade' => $upgrade,
+                    'training' => $training,
                 ];
             })
             ->values()

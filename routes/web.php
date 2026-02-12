@@ -127,7 +127,7 @@ Route::group([
         ->name('login');
 });
 
-Route::get('logout', [LoginController::class, 'logout'])
+Route::match(['get', 'post'], 'logout', [LoginController::class, 'logout'])
     ->name('logout');
 
 /*
@@ -225,4 +225,5 @@ Route::get('debug/session', function (\Illuminate\Http\Request $request) {
 
 Route::get('/{vue?}', [HomeController::class, 'index'])
     ->name('home')
+    ->middleware('no.cache')
     ->where('vue', 'starmap');
