@@ -185,6 +185,7 @@ export default {
         EventBus.$off('planet-updated', this.onPlanetData);
         clearTimeout(this._retryTimer);
         if (this._timerInterval) clearInterval(this._timerInterval);
+        if (this._syncInterval) clearInterval(this._syncInterval);
         if (this._ro) this._ro.disconnect();
         window.removeEventListener('resize', this.onWindowResize);
         window.removeEventListener('orientationchange', this.onOrientationChange);
@@ -295,10 +296,9 @@ export default {
             // draw calls use CSS-logical coordinates (not device pixels).
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-            // Crisp sprite rendering (no bilinear blur).
-            ctx.imageSmoothingEnabled = false;
-            if (ctx.webkitImageSmoothingEnabled !== undefined)
-                ctx.webkitImageSmoothingEnabled = false;
+            // Smooth downscaling for detailed isometric art (not pixel art).
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
 
             var cw = tf.cw, ch = tf.ch;
             var s = tf.scale;
@@ -400,28 +400,47 @@ export default {
         /* ── timers ──────────────────────────────────────────── */
         startTimers() {
             if (this._timerInterval) clearInterval(this._timerInterval);
+            if (this._syncInterval) clearInterval(this._syncInterval);
+
             var grids = this.planet.grids;
             if (!grids) return;
-            var has = false;
+
+            var hasTimers = false;
             for (var i = 0; i < grids.length; i++) {
                 var g = grids[i];
                 if ((g.construction && g.construction.remaining > 0) ||
                     (g.upgrade && g.upgrade.remaining > 0) ||
-                    (g.training && g.training.remaining > 0)) { has = true; break; }
+                    (g.training && g.training.remaining > 0)) { hasTimers = true; break; }
             }
-            if (!has) return;
-            this._timerInterval = setInterval(() => {
-                if (this._destroyed) { clearInterval(this._timerInterval); return; }
-                var any = false;
-                for (var j = 0; j < grids.length; j++) {
-                    var g = grids[j];
-                    if (g.construction && g.construction.remaining > 0) { g.construction.remaining--; any = true; }
-                    if (g.upgrade && g.upgrade.remaining > 0) { g.upgrade.remaining--; any = true; }
-                    if (g.training && g.training.remaining > 0) { g.training.remaining--; any = true; }
-                }
-                this.draw();
-                if (!any) { clearInterval(this._timerInterval); this._timerInterval = null; this.fetchPlanet(); }
-            }, 1000);
+
+            if (hasTimers) {
+                // Client-side countdown (visual only, server is source of truth).
+                this._timerInterval = setInterval(() => {
+                    if (this._destroyed) { clearInterval(this._timerInterval); return; }
+                    var any = false;
+                    for (var j = 0; j < grids.length; j++) {
+                        var g = grids[j];
+                        if (g.construction && g.construction.remaining > 0) { g.construction.remaining--; any = true; }
+                        if (g.upgrade && g.upgrade.remaining > 0) { g.upgrade.remaining--; any = true; }
+                        if (g.training && g.training.remaining > 0) { g.training.remaining--; any = true; }
+                    }
+                    this.draw();
+                    if (!any) {
+                        clearInterval(this._timerInterval);
+                        this._timerInterval = null;
+                        this.fetchPlanet();
+                    }
+                }, 1000);
+            }
+
+            // Periodic server sync every 15 seconds. Catches:
+            // - sync queue (instant build on server side)
+            // - timer drift
+            // - external state changes
+            this._syncInterval = setInterval(() => {
+                if (this._destroyed) { clearInterval(this._syncInterval); return; }
+                this.fetchPlanet();
+            }, 15000);
         },
 
         /* ── hit testing ─────────────────────────────────────── */
