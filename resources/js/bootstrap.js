@@ -45,17 +45,33 @@ if (token) {
  * allows your team to easily build robust real-time web applications.
  */
 
-window.Pusher = require('pusher-js');
+/**
+ * Laravel Echo / Pusher initialization.
+ *
+ * Wrapped in try/catch so that a missing WebSocket server, an empty
+ * PUSHER_APP_KEY, or any other connection error does NOT crash the
+ * entire JavaScript bootstrap — which would prevent Vue from mounting
+ * and cause a white/black screen after login.
+ */
+try {
+    window.Pusher = require('pusher-js');
 
-window.Echo = new Echo({
-    broadcaster: 'pusher',
-    key: window.PUSHER_APP_KEY,
-    wsHost: window.location.hostname,
-    wsPort: window.location.port,
-    wsPath: '/ws',
-    disableStats: true,
-    enabledTransports: ['ws', 'wss']
-});
+    if (window.PUSHER_APP_KEY) {
+        window.Echo = new Echo({
+            broadcaster: 'pusher',
+            key: window.PUSHER_APP_KEY,
+            wsHost: window.location.hostname,
+            wsPort: window.location.port,
+            wsPath: '/ws',
+            disableStats: true,
+            enabledTransports: ['ws', 'wss']
+        });
+    } else {
+        console.warn('PUSHER_APP_KEY not set — real-time features disabled.');
+    }
+} catch (echoError) {
+    console.warn('Echo/Pusher init failed — real-time features disabled:', echoError.message);
+}
 
 /**
  * We will import the required libs.

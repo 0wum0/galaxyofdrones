@@ -63,7 +63,7 @@ Route::group([
 
 Route::group([
     'prefix' => 'start',
-    'middleware' => ['log.csrf', 'no.cache'],
+    'middleware' => ['no.cache'],
 ], function () {
     Route::post('/', [StartController::class, 'store'])
         ->name('start_store');
@@ -129,99 +129,6 @@ Route::group([
 
 Route::match(['get', 'post'], 'logout', [LoginController::class, 'logout'])
     ->name('logout');
-
-/*
-|--------------------------------------------------------------------------
-| Debug: CSRF / Session diagnostic endpoints (auth + signed URL required)
-|--------------------------------------------------------------------------
-| Usage:  php artisan tinker  →  URL::signedRoute('debug.csrf')
-|         php artisan tinker  →  URL::signedRoute('debug.session')
-| Then open the signed URL while logged in. Safe on production because:
-|   1) requires authentication
-|   2) requires a valid signed URL (unguessable)
-| Remove these routes once session issues are resolved.
-*/
-Route::get('debug/csrf', function (\Illuminate\Http\Request $request) {
-    $user = $request->user();
-    $sessionToken = $request->hasSession() ? $request->session()->token() : null;
-
-    // Collect cookie names present in the request
-    $cookieNames = [];
-    foreach ($request->cookies->all() as $name => $value) {
-        $cookieNames[$name] = is_string($value) ? strlen($value) : 'non-string';
-    }
-
-    // Collect relevant headers
-    $relevantHeaders = [];
-    foreach (['x-forwarded-for', 'x-forwarded-proto', 'x-forwarded-host', 'x-forwarded-port', 'x-csrf-token', 'x-xsrf-token', 'referer', 'host', 'origin'] as $h) {
-        $val = $request->header($h);
-        $relevantHeaders[$h] = $val ?: 'not-present';
-    }
-
-    return response()->json([
-        // App config
-        'app_url'                => config('app.url'),
-        'app_env'                => config('app.env'),
-
-        // Request detection
-        'request_host'           => $request->getHost(),
-        'request_scheme'         => $request->getScheme(),
-        'request_is_secure'      => $request->isSecure(),
-        'request_ip'             => $request->ip(),
-
-        // Session config
-        'session_driver'         => config('session.driver'),
-        'session_cookie_name'    => config('session.cookie'),
-        'session_domain'         => config('session.domain'),
-        'session_secure'         => config('session.secure'),
-        'session_samesite'       => config('session.same_site'),
-        'session_lifetime'       => config('session.lifetime'),
-        'session_path'           => config('session.path'),
-
-        // Session state
-        'session_id'             => $request->hasSession() ? $request->session()->getId() : 'NO_SESSION',
-        'csrf_token_func'        => csrf_token() ? 'present(' . strlen(csrf_token()) . ')' : 'MISSING',
-        'session_token'          => $sessionToken ? 'present(' . strlen($sessionToken) . ')' : 'MISSING',
-        'tokens_match'           => csrf_token() === $sessionToken,
-
-        // Cookies in request
-        'cookies_present'        => $cookieNames,
-
-        // Headers
-        'relevant_headers'       => $relevantHeaders,
-
-        // Auth
-        'user_id'                => $user?->id,
-
-        // System
-        'php_version'            => PHP_VERSION,
-        'laravel_version'        => app()->version(),
-        'session_save_path'      => session_save_path(),
-    ]);
-})->middleware(['auth', 'signed'])->name('debug.csrf');
-
-Route::get('debug/session', function (\Illuminate\Http\Request $request) {
-    $user = $request->user();
-    return response()->json([
-        'session_id'        => $request->session()->getId(),
-        'csrf_token_present' => (bool) $request->session()->token(),
-        'cookie_name'       => config('session.cookie'),
-        'session_domain'    => config('session.domain'),
-        'session_secure'    => config('session.secure'),
-        'session_samesite'  => config('session.same_site'),
-        'session_driver'    => config('session.driver'),
-        'session_lifetime'  => config('session.lifetime'),
-        'app_url'           => config('app.url'),
-        'app_env'           => config('app.env'),
-        'request_secure'    => $request->isSecure(),
-        'request_host'      => $request->getHost(),
-        'request_scheme'    => $request->getScheme(),
-        'user_id'           => $user?->id,
-        'user_started'      => $user ? $user->isStarted() : null,
-        'php_version'       => PHP_VERSION,
-        'session_save_path' => session_save_path(),
-    ]);
-})->middleware(['auth', 'signed'])->name('debug.session');
 
 Route::get('/{vue?}', [HomeController::class, 'index'])
     ->name('home')

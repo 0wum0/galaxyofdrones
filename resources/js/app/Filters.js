@@ -16,9 +16,18 @@ export default {
     },
 
     item(value, type = 'resource') {
-        return `${type}-${value && _.has(value, 'id')
-            ? value.id
-            : value}`;
+        // Extract the ID from value (object with .id, or raw number/string).
+        var id = (value && _.has(value, 'id')) ? value.id : value;
+
+        // Guard: if id is falsy (undefined, null, 0, '') or not a positive
+        // integer, return an empty string so no invalid CSS class is applied.
+        // This prevents showing the default sprite-sheet position (0,0) which
+        // is resource-1 (crystal) — the source of "wrong image in modal" bugs.
+        if (!id || (typeof id !== 'number' && typeof id !== 'string')) {
+            return '';
+        }
+
+        return type + '-' + id;
     },
 
     number(value, decimals = 2) {

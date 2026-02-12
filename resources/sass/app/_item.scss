@@ -25,7 +25,12 @@
         text-align: center;
     }
     &:before {
-        background: url('../images/sprite-item.png?v=#{$cache-buster}') 0 0 no-repeat;
+        // Default: NO background image. The image is applied only when a
+        // valid type class (resource-N, building-N, etc.) is present.
+        // This prevents showing the first sprite (resource-1 / crystal)
+        // when the data hasn't loaded yet or the binding is stale.
+        background-image: none;
+        background-repeat: no-repeat;
         content: '';
         display: block;
         height: 240px;
@@ -34,6 +39,16 @@
         top: 0;
         transform: translateX(-50%);
         width: 240px;
+    }
+    // Apply sprite sheet only for known item types.
+    &[class*="resource-"]:before,
+    &[class*="building-"]:before,
+    &[class*="unit-"]:before,
+    &[class*="star"]:before,
+    &[class*="planet-"]:before,
+    &[class*="mothership"]:before,
+    &[class*="solarion"]:before {
+        background-image: url('../images/sprite-item.png?v=#{$cache-buster}');
     }
     &.resource-1:before {
         background-position: 0 0;
@@ -146,10 +161,20 @@
         width: auto;
 
         &:before {
-            background-image: url('../images/sprite-item-sm.png?v=#{$cache-buster}');
+            // Small sprite: default is none; image applied by type class (inherited from parent selectors above).
+            background-image: none;
             background-size: 240px 336px;
             height: 48px;
             width: 48px;
+        }
+        &[class*="resource-"]:before,
+        &[class*="building-"]:before,
+        &[class*="unit-"]:before,
+        &[class*="star"]:before,
+        &[class*="planet-"]:before,
+        &[class*="mothership"]:before,
+        &[class*="solarion"]:before {
+            background-image: url('../images/sprite-item-sm.png?v=#{$cache-buster}');
         }
         &.resource-1:before {
             background-position: 0 0;
