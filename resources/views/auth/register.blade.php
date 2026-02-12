@@ -20,7 +20,7 @@
                     {{ $subtitle }}
                 </h5>
             </div>
-            <form action="{{ route('register') }}" method="post">
+            <form action="{{ route('register_store') }}" method="post">
                 {{ csrf_field() }}
 
                 <div class="card-body">

@@ -80,7 +80,7 @@ Route::group([
         ->name('register');
 
     Route::post('/', [RegisterController::class, 'register'])
-        ->name('register');
+        ->name('register_store');
 });
 
 Route::group([
@@ -124,7 +124,7 @@ Route::group([
         ->name('login');
 
     Route::post('/', [LoginController::class, 'login'])
-        ->name('login');
+        ->name('login_store');
 });
 
 Route::match(['get', 'post'], 'logout', [LoginController::class, 'logout'])
