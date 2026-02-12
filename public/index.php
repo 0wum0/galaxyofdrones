@@ -35,6 +35,36 @@ require __DIR__.'/../vendor/autoload.php';
 
 /*
 |--------------------------------------------------------------------------
+| Guard: ext-psr PECL extension conflict
+|--------------------------------------------------------------------------
+|
+| The PECL "psr" extension (ext-psr) provides PSR interfaces as native C
+| classes with PSR-3 v1 method signatures. Monolog v3 and psr/log v3 use
+| PSR-3 v3 signatures (Stringable|string $message). When ext-psr is loaded,
+| PHP resolves Psr\Log\LoggerInterface from the extension (v1 signatures)
+| instead of from Composer's psr/log package (v3 signatures), causing:
+|   "Declaration of Monolog\Logger::emergency(...) must be compatible with
+|    PsrExt\Log\LoggerInterface::emergency(...)"
+|
+| Fix: disable ext-psr in your hosting PHP settings (Hostinger hPanel →
+| Advanced → PHP Configuration → Extensions → uncheck "psr").
+|
+*/
+
+if (extension_loaded('psr')) {
+    http_response_code(500);
+    die(
+        '<h1>Server Configuration Error</h1>'
+        . '<p>The PHP <code>ext-psr</code> extension is loaded and conflicts with '
+        . 'Monolog v3 / psr/log v3 (PSR-3 signature mismatch).</p>'
+        . '<p><strong>Fix:</strong> Disable the <code>psr</code> PHP extension in your '
+        . 'hosting control panel (Hostinger hPanel → Advanced → PHP Configuration '
+        . '→ Extensions → uncheck "psr").</p>'
+    );
+}
+
+/*
+|--------------------------------------------------------------------------
 | Run The Application
 |--------------------------------------------------------------------------
 |

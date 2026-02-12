@@ -18,7 +18,11 @@
         "laravel/framework": "^10.0",
         "laravel/passport": "^11.0",
         "laravel/tinker": "^2.8",
-        "laravel/ui": "^4.0"
+        "laravel/ui": "^4.0",
+        "psr/log": "^3.0"
+    },
+    "conflict": {
+        "ext-psr": "*"
     },
     "require-dev": {
         "barryvdh/laravel-ide-helper": "^2.13",
