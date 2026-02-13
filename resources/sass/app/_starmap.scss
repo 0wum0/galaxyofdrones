@@ -12,14 +12,15 @@
     // leaking through to the page; Leaflet handles its own events.
     touch-action: none;
 
-    // Ensure Leaflet's own container always fills the starmap div.
     // Override Leaflet's default gray background (#ddd) so the
     // spiral-galaxy image from .container-app shows through the
     // transparent .starmap layer — especially visible on zoom-out
     // where no tiles exist.
-    .leaflet-container {
-        height: 100% !important;
-        width: 100% !important;
+    //
+    // NOTE: Leaflet adds .leaflet-container to the SAME element
+    // (.starmap), so this MUST be a compound selector (no space)
+    // not a descendant selector.
+    &.leaflet-container {
         background: transparent !important;
     }
 
@@ -92,6 +93,10 @@
         background-repeat: no-repeat;
         // 5 columns → 500%, 7 rows → 700%
         background-size: 500% 700%;
+        // Fallback: if the sprite sheet fails to load (404, CORS, etc.)
+        // show a visible colored dot so planets are never invisible.
+        // When the sprite loads successfully it covers this completely.
+        background-color: rgba(120, 180, 255, 0.45);
     }
 
     // Star: col 0, row 5  →  0%  83.333%
