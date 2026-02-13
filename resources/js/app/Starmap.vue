@@ -264,25 +264,31 @@ export default {
 
         objectMarker(latLng, geoJsonPoint) {
             const size = (geoJsonPoint.properties.size + 16) / this.multiplier();
-            const props = geoJsonPoint.properties;
-
-            let className = 'leaflet-icon-object';
-
-            if (props.type === 'planet') {
-                className += ` leaflet-planet leaflet-planet-${props.resource_id || 1} ${props.status}`;
-            } else if (props.type === 'star') {
-                className += ' leaflet-star';
-            }
 
             const options = {
-                className,
+                className: geoJsonPoint.properties.type === 'planet'
+                    ? `leaflet-icon-object ${geoJsonPoint.properties.status}`
+                    : 'leaflet-icon-object',
                 iconSize: [
                     size, size
                 ]
             };
 
+            // Planet / Star sprite: rendered as an inner element so the
+            // outer divIcon keeps its original className and CSS intact.
+            let spriteHtml = '';
+
+            if (geoJsonPoint.properties.type === 'planet') {
+                const rid = geoJsonPoint.properties.resource_id || 1;
+                spriteHtml = `<div class="leaflet-planet-sprite leaflet-planet-${rid}"></div>`;
+            } else if (geoJsonPoint.properties.type === 'star') {
+                spriteHtml = '<div class="leaflet-planet-sprite leaflet-star-sprite"></div>';
+            }
+
             if (this.map.getZoom() >= 8) {
-                options.html = `<span>${props.name}</span>`;
+                options.html = `${spriteHtml}<span>${geoJsonPoint.properties.name}</span>`;
+            } else if (spriteHtml) {
+                options.html = spriteHtml;
             }
 
             const marker = L.marker(latLng, {
