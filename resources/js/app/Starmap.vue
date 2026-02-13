@@ -73,6 +73,31 @@ export default {
         EventBus.$on('planet-updated', this.planetUpdated);
         EventBus.$on('starmap-move', this.starmapMove);
 
+        // ── Request cached planet data immediately ───────────────
+        // The Sidebar caches planet data after its first fetch.
+        // Emit 'planet-data-request' to receive it synchronously
+        // via 'planet-updated' — same pattern Surface.vue uses.
+        // Without this, the Starmap silently waits until the next
+        // Sidebar fetch (which may never come if data is cached),
+        // resulting in an empty map with no Leaflet initialization.
+        EventBus.$emit('planet-data-request');
+
+        // Fallback: if we still don't have planet data after the
+        // Sidebar's async fetch, request it directly.
+        this.$nextTick(() => {
+            if (!this.map) {
+                this._retryTimer = setTimeout(() => {
+                    if (!this.map) {
+                        axios.get('/api/planet').then(r => {
+                            if (!this.map && r.data && r.data.id) {
+                                this.planetUpdated(r.data);
+                            }
+                        }).catch(() => {});
+                    }
+                }, 2000);
+            }
+        });
+
         // After the component is mounted and the DOM is ready,
         // invalidate the map size so Leaflet recalculates its dimensions.
         this.$nextTick(() => {
@@ -85,6 +110,7 @@ export default {
     beforeDestroy() {
         EventBus.$off('planet-updated', this.planetUpdated);
         EventBus.$off('starmap-move', this.starmapMove);
+        if (this._retryTimer) clearTimeout(this._retryTimer);
 
         this.destoryLeaflet();
     },
